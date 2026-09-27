@@ -28,17 +28,29 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [detailsStream, setDetailsStream] = useState<Stream | null>(null);
+  const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'CANCELLED'>('ALL');
+  const [filterInitialized, setFilterInitialized] = useState(false);
 
   const refresh = useCallback(() => {
     if (!address) {
       setStreams([]);
+      setFilterInitialized(false);
       return;
     }
 
     setLoading(true);
     setLoadError(false);
     getStreams({ donor: address })
-      .then(setStreams)
+      .then((data) => {
+        setStreams(data);
+        setFilterInitialized((prev) => {
+          if (!prev) {
+            setFilter(data.some((s) => s.status === 'ACTIVE') ? 'ACTIVE' : 'ALL');
+            return true;
+          }
+          return prev;
+        });
+      })
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, [address]);
@@ -58,6 +70,13 @@ export default function DashboardPage() {
     0n,
   );
   const activeCount = streams.filter((s) => s.status === 'ACTIVE').length;
+
+  const filteredStreams = streams.filter((s) => {
+    if (filter === 'ALL') return true;
+    if (filter === 'ACTIVE') return s.status === 'ACTIVE';
+    if (filter === 'CANCELLED') return s.status === 'CANCELLED';
+    return true;
+  });
 
   return (
     <>
@@ -125,12 +144,41 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            <ul className="mt-8 space-y-4">
-              {streams.map((stream) => (
-                <li
-                  key={stream.id}
-                  className="rounded-lg border border-gray-200 p-6 dark:border-gray-800"
-                >
+            <div className="mt-8 flex gap-4 border-b border-gray-200 dark:border-gray-800">
+              <button
+                type="button"
+                onClick={() => setFilter('ALL')}
+                className={`pb-2 text-sm font-medium ${filter === 'ALL' ? 'border-b-2 border-black text-black dark:border-white dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilter('ACTIVE')}
+                className={`pb-2 text-sm font-medium ${filter === 'ACTIVE' ? 'border-b-2 border-black text-black dark:border-white dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}
+              >
+                Active
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilter('CANCELLED')}
+                className={`pb-2 text-sm font-medium ${filter === 'CANCELLED' ? 'border-b-2 border-black text-black dark:border-white dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}
+              >
+                Cancelled
+              </button>
+            </div>
+
+            {filteredStreams.length === 0 ? (
+              <p className="mt-8 text-gray-600 dark:text-gray-400">
+                No {filter.toLowerCase()} streams found.
+              </p>
+            ) : (
+              <ul className="mt-6 space-y-4">
+                {filteredStreams.map((stream) => (
+                  <li
+                    key={stream.id}
+                    className="rounded-lg border border-gray-200 p-6 dark:border-gray-800"
+                  >
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <Link
