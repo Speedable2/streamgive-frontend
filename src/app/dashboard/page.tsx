@@ -12,6 +12,45 @@ import { getStreams, type Stream } from '@/lib/api';
 import { buildDonationHistoryCsv } from '@/lib/csv';
 import { formatAmount } from '@/lib/format';
 
+function LiveBalance({ stream }: { stream: Stream }) {
+  const [estimatedBalance, setEstimatedBalance] = useState<bigint>(BigInt(stream.balance));
+
+  useEffect(() => {
+    if (stream.status !== 'ACTIVE') {
+      setEstimatedBalance(BigInt(stream.balance));
+      return;
+    }
+
+    const balance = BigInt(stream.balance);
+    const rate = BigInt(stream.rate);
+    const updatedAt = new Date(stream.updatedAt).getTime();
+
+    const tick = () => {
+      const now = Date.now();
+      const secondsSince = BigInt(Math.floor((now - updatedAt) / 1000));
+      let current = balance - rate * secondsSince;
+      if (current < 0n) {
+        current = 0n;
+      }
+      setEstimatedBalance(current);
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [stream.balance, stream.rate, stream.updatedAt, stream.status]);
+
+  if (stream.status !== 'ACTIVE') {
+    return <>{formatAmount(stream.balance)}</>;
+  }
+
+  return (
+    <span title="Estimated current balance based on stream rate" className="border-b border-dotted border-gray-400 cursor-help">
+      {formatAmount(estimatedBalance.toString())} (est)
+    </span>
+  );
+}
+
 function downloadDonationHistoryCsv(streams: Stream[]): void {
   const blob = new Blob([buildDonationHistoryCsv(streams)], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -141,7 +180,7 @@ export default function DashboardPage() {
                       </Link>
                       <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                         {stream.status === 'ACTIVE' ? 'Active' : 'Cancelled'} · Balance{' '}
-                        {formatAmount(stream.balance)} · Withdrawn {formatAmount(stream.withdrawn)}
+                        <LiveBalance stream={stream} /> · Withdrawn {formatAmount(stream.withdrawn)}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
