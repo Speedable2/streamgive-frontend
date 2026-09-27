@@ -2,6 +2,7 @@
 
 import { useState, useSyncExternalStore } from 'react';
 
+import { useToast } from '@/components/toast/ToastProvider';
 import { APP_URL } from '@/lib/config';
 
 // The origin never changes while the page is open, so there is nothing to
@@ -42,6 +43,17 @@ export function EmbedSnippet({ ngoId }: { ngoId: string }) {
     preset === 'custom' ? { width: customWidth, height: customHeight } : SIZE_PRESETS[preset];
 
   const snippet = `<iframe src="${origin}/embed/${ngoId}" width="${width}" height="${height}" style="border:0"></iframe>`;
+
+  const { showToast } = useToast();
+
+  async function handleCopy(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(snippet);
+      showToast('success', 'Snippet copied to clipboard.');
+    } catch {
+      // Clipboard access can be denied by the browser
+    }
+  }
 
   return (
     <div className="mt-8 rounded-lg border border-gray-200 p-6 dark:border-gray-800">
@@ -101,6 +113,13 @@ export function EmbedSnippet({ ngoId }: { ngoId: string }) {
         onClick={(event) => event.currentTarget.select()}
         className="mt-3 w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 font-mono text-xs dark:border-gray-700 dark:bg-gray-800"
       />
+      <button
+        type="button"
+        onClick={() => void handleCopy()}
+        className="mt-3 rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+      >
+        Copy snippet
+      </button>
     </div>
   );
 }
