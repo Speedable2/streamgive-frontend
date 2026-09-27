@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState, useRef, type FormEvent } from 'react';
 
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
@@ -29,6 +29,7 @@ export default function ApplyPage() {
   const [country, setCountry] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const isSubmittingRef = useRef(false);
 
   const canSubmit =
     !!address &&
@@ -40,8 +41,9 @@ export default function ApplyPage() {
 
   async function handleSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
-    if (!canSubmit || !address) return;
+    if (!canSubmit || !address || isSubmittingRef.current) return;
 
+    isSubmittingRef.current = true;
     setErrorMessage(null);
 
     // On-chain first. approve_ngo fails with NotRegistered until the
@@ -63,6 +65,7 @@ export default function ApplyPage() {
             : 'Could not register on-chain.',
         );
         setStatus('error');
+        isSubmittingRef.current = false;
         return;
       }
       // Already in the registry from an earlier attempt — carry on.
@@ -79,9 +82,11 @@ export default function ApplyPage() {
         country: country.trim() || undefined,
       });
       setStatus('success');
+      isSubmittingRef.current = false;
     } catch (err) {
       setErrorMessage(err instanceof ApiError ? err.message : 'Something went wrong.');
       setStatus('error');
+      isSubmittingRef.current = false;
     }
   }
 
@@ -194,8 +199,13 @@ export default function ApplyPage() {
             <button
               type="submit"
               disabled={!canSubmit}
-              className="w-full rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+              className="w-full flex justify-center items-center gap-2 rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-gray-200"
             >
+              {(status === 'registering' || status === 'submitting') && (
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" />
+                </svg>
+              )}
               {status === 'registering'
                 ? 'Confirm in your wallet…'
                 : status === 'submitting'
