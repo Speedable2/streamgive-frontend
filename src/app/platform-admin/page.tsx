@@ -20,13 +20,14 @@ export default function PlatformAdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
+  const [statusFilter, setStatusFilter] = useState<'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
 
   const refresh = useCallback(async () => {
     if (!address) return;
     setLoading(true);
     setError(null);
     try {
-      setApplications(await listNgoApplications(address, signMessage, 'PENDING'));
+      setApplications(await listNgoApplications(address, signMessage, statusFilter));
     } catch (err) {
       setError(
         err instanceof Error
@@ -36,7 +37,7 @@ export default function PlatformAdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [address, signMessage]);
+  }, [address, signMessage, statusFilter]);
 
   useEffect(() => {
     // refresh() flips loading/error state synchronously before it awaits,
@@ -109,6 +110,26 @@ export default function PlatformAdminPage() {
           </div>
         )}
 
+        {address && (
+          <div className="mt-8 border-b border-gray-200 dark:border-gray-800">
+            <nav className="-mb-px flex space-x-8">
+              {(['PENDING', 'APPROVED', 'REJECTED'] as const).map((status) => (
+                <button
+                  key={status}
+                  onClick={() => setStatusFilter(status)}
+                  className={`whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium ${
+                    statusFilter === status
+                      ? 'border-black text-black dark:border-white dark:text-white'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-300'
+                  }`}
+                >
+                  {status.charAt(0) + status.slice(1).toLowerCase()}
+                </button>
+              ))}
+            </nav>
+          </div>
+        )}
+
         {address && loading && (
           <p role="status" className="mt-8 text-gray-500 dark:text-gray-400">
             Loading…
@@ -118,7 +139,7 @@ export default function PlatformAdminPage() {
         {address && error && <p className="mt-8 text-red-600 dark:text-red-400">{error}</p>}
 
         {address && !loading && !error && applications.length === 0 && (
-          <p className="mt-8 text-gray-600 dark:text-gray-400">No pending applications.</p>
+          <p className="mt-8 text-gray-600 dark:text-gray-400">No {statusFilter.toLowerCase()} applications.</p>
         )}
 
         {address && !loading && applications.length > 0 && (
@@ -155,38 +176,51 @@ export default function PlatformAdminPage() {
                     </p>
                   </div>
                   <div className="flex w-full shrink-0 flex-col gap-2 sm:w-64">
-                    <label className="block">
-                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                        Review note (optional)
-                      </span>
-                      <textarea
-                        value={reviewNotes[app.id] ?? ''}
-                        onChange={(event) =>
-                          setReviewNotes((notes) => ({ ...notes, [app.id]: event.target.value }))
-                        }
-                        rows={2}
-                        placeholder="Why is this approved or rejected?"
-                        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
-                      />
-                    </label>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void handleApprove(app)}
-                        disabled={busyId === app.id}
-                        className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-gray-200"
-                      >
-                        {busyId === app.id ? 'Working…' : 'Approve'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleReject(app)}
-                        disabled={busyId === app.id}
-                        className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800"
-                      >
-                        Reject
-                      </button>
-                    </div>
+                    {app.status === 'PENDING' ? (
+                      <>
+                        <label className="block">
+                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                            Review note (optional)
+                          </span>
+                          <textarea
+                            value={reviewNotes[app.id] ?? ''}
+                            onChange={(event) =>
+                              setReviewNotes((notes) => ({ ...notes, [app.id]: event.target.value }))
+                            }
+                            rows={2}
+                            placeholder="Why is this approved or rejected?"
+                            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+                          />
+                        </label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleApprove(app)}
+                            disabled={busyId === app.id}
+                            className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+                          >
+                            {busyId === app.id ? 'Working…' : 'Approve'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleReject(app)}
+                            disabled={busyId === app.id}
+                            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div>
+                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                          Review note
+                        </span>
+                        <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                          {app.reviewNote || 'No note provided.'}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </li>
