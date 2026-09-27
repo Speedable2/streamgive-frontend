@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect } from 'react';
 
 import type { Stream } from '@/lib/api';
 import { formatAmount } from '@/lib/format';
@@ -17,6 +18,14 @@ function tokenLabel(tokenAddress: string): string {
 }
 
 export function StreamDetailsModal({ stream, onClose }: { stream: Stream; onClose: () => void }) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"

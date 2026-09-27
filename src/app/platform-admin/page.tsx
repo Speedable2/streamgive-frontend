@@ -18,7 +18,7 @@ export default function PlatformAdminPage() {
   const [applications, setApplications] = useState<NgoApplication[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busy, setBusy] = useState<{ id: string; action: 'approve' | 'reject' } | null>(null);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
 
   const refresh = useCallback(async () => {
@@ -50,7 +50,7 @@ export default function PlatformAdminPage() {
 
   async function handleApprove(app: NgoApplication): Promise<void> {
     if (!address) return;
-    setBusyId(app.id);
+    setBusy({ id: app.id, action: 'approve' });
     try {
       // On-chain first: this is what actually flips Ngo.verified once the
       // indexer picks up the resulting event. If the wallet rejects or the
@@ -67,13 +67,13 @@ export default function PlatformAdminPage() {
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
   async function handleReject(app: NgoApplication): Promise<void> {
     if (!address) return;
-    setBusyId(app.id);
+    setBusy({ id: app.id, action: 'reject' });
     try {
       await reviewNgoApplication(address, signMessage, app.id, 'reject', reviewNotes[app.id]);
       showToast('info', `${app.name} rejected.`);
@@ -81,7 +81,7 @@ export default function PlatformAdminPage() {
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
@@ -173,18 +173,18 @@ export default function PlatformAdminPage() {
                       <button
                         type="button"
                         onClick={() => void handleApprove(app)}
-                        disabled={busyId === app.id}
+                        disabled={busy?.id === app.id}
                         className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-gray-200"
                       >
-                        {busyId === app.id ? 'Working…' : 'Approve'}
+                        {busy?.id === app.id && busy.action === 'approve' ? 'Processing…' : 'Approve'}
                       </button>
                       <button
                         type="button"
                         onClick={() => void handleReject(app)}
-                        disabled={busyId === app.id}
+                        disabled={busy?.id === app.id}
                         className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800"
                       >
-                        Reject
+                        {busy?.id === app.id && busy.action === 'reject' ? 'Processing…' : 'Reject'}
                       </button>
                     </div>
                   </div>
