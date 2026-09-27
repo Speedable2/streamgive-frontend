@@ -54,9 +54,15 @@ export default function ImpactPage() {
         )}
 
         {!loadError && !impact && (
-          <p role="status" className="mt-8 text-gray-500 dark:text-gray-400">
-            Loading…
-          </p>
+          <div role="status" className="mt-8 grid animate-pulse grid-cols-2 gap-6 sm:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i}>
+                <div className="h-5 w-24 rounded bg-gray-200 dark:bg-gray-800" />
+                <div className="mt-2 h-8 w-32 rounded bg-gray-200 dark:bg-gray-800" />
+              </div>
+            ))}
+            <span className="sr-only">Loading…</span>
+          </div>
         )}
 
         {impact && (
