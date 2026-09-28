@@ -81,4 +81,18 @@ test.describe('core donor flow (no wallet extension required)', () => {
     await expect(page.getByLabel(/organization name/i)).not.toBeVisible();
     await expect(page.getByRole('button', { name: /submit application/i })).not.toBeVisible();
   });
+
+  test('dashboard prompts for wallet connection when nothing is connected', async ({ page }) => {
+    // No wallet extension in CI, so the dashboard can only show its connect
+    // prompt — and it must not start fetching streams without an address.
+    // The header also carries a "Connect Wallet" button, so the prompt
+    // assertions are scoped to <main> to match the page's own card.
+    await page.goto('/dashboard');
+
+    const main = page.getByRole('main');
+    await expect(page.getByRole('heading', { name: /your donations/i })).toBeVisible();
+    await expect(main.getByText(/connect your wallet to see your streams/i)).toBeVisible();
+    await expect(main.getByRole('button', { name: /connect wallet/i })).toBeVisible();
+    await expect(page.getByText(/loading your streams/i)).not.toBeVisible();
+  });
 });
