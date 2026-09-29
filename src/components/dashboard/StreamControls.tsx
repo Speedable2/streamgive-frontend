@@ -239,6 +239,15 @@ export function StreamControls({
 
   return (
     <div className="flex flex-wrap justify-end gap-2">
+      <span role="status" aria-live="polite" className="sr-only">
+        {pending === 'topUp'
+          ? 'Topping up…'
+          : pending === 'modifyRate'
+            ? 'Updating…'
+            : pending === 'cancel'
+              ? 'Cancelling…'
+              : ''}
+      </span>
       <button
         type="button"
         onClick={() => setMode('toppingUp')}

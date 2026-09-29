@@ -77,6 +77,12 @@ describe('StreamControls', () => {
     getDonationVaultClient.mockImplementation(async () => clientReturning({}));
   });
 
+  it('announces operation feedback in a polite live region', () => {
+    render(<StreamControls stream={STREAM} onChanged={vi.fn()} />);
+
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
+  });
+
   it('shows "Topping up…" only while a top-up is in flight', async () => {
     const user = userEvent.setup();
     render(<StreamControls stream={STREAM} onChanged={vi.fn()} />);
