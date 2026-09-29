@@ -84,41 +84,40 @@ export function NgoExplorer({ ngos }: { ngos: NgoProfile[] }) {
       ) : (
         <ul className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {visibleNgos.map((ngo) => (
-            <li
-              key={ngo.id}
-              className="rounded-lg border border-gray-200 p-6 dark:border-gray-800"
-            >
-              <div className="flex items-center gap-2">
-                <h2 className="font-semibold">{ngo.name}</h2>
-                {ngo.verified && (
-                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-300">
-                    Verified
-                  </span>
-                )}
-              </div>
-
-              <dl className="mt-4 grid grid-cols-3 gap-3">
-                <div>
-                  <dt className="text-xs text-gray-500 dark:text-gray-400">Committed</dt>
-                  <dd className="text-sm font-semibold">
-                    {formatAmount(ngo.stats.totalCommitted)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-gray-500 dark:text-gray-400">Streams</dt>
-                  <dd className="text-sm font-semibold">{ngo.stats.activeStreamCount}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-gray-500 dark:text-gray-400">Donors</dt>
-                  <dd className="text-sm font-semibold">{ngo.stats.donorCount}</dd>
-                </div>
-              </dl>
-
+            <li key={ngo.id}>
               <Link
                 href={`/ngos/${ngo.id}`}
-                className="mt-4 inline-block text-sm font-medium text-black underline dark:text-white"
+                className="block rounded-lg border border-gray-200 p-6 hover:bg-gray-50 focus-visible:border-gray-400 focus-visible:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 dark:border-gray-800 dark:hover:bg-gray-900 dark:focus-visible:border-gray-600 dark:focus-visible:bg-gray-900 dark:focus-visible:ring-white"
               >
-                View profile
+                <div className="flex items-center gap-2">
+                  <h2 className="font-semibold">{ngo.name}</h2>
+                  {ngo.verified && (
+                    <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-300">
+                      Verified
+                    </span>
+                  )}
+                </div>
+
+                <dl className="mt-4 grid grid-cols-3 gap-3">
+                  <div>
+                    <dt className="text-xs text-gray-500 dark:text-gray-400">Committed</dt>
+                    <dd className="text-sm font-semibold">
+                      {formatAmount(ngo.stats.totalCommitted)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-gray-500 dark:text-gray-400">Streams</dt>
+                    <dd className="text-sm font-semibold">{ngo.stats.activeStreamCount}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-gray-500 dark:text-gray-400">Donors</dt>
+                    <dd className="text-sm font-semibold">{ngo.stats.donorCount}</dd>
+                  </div>
+                </dl>
+
+                <span className="mt-4 inline-block text-sm font-medium text-black underline dark:text-white">
+                  View profile
+                </span>
               </Link>
             </li>
           ))}
