@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 
 import { ConnectWalletPrompt } from '@/components/common/ConnectWalletPrompt';
@@ -80,9 +81,13 @@ export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
       setEstimatedFee(formatEstimatedFee(tx.built?.fee));
 
       const { result } = await tx.signAndSend();
+      const newStreamId = String(result);
 
-      setStreamId(String(result));
+      setStreamId(newStreamId);
       setSubmitState('success');
+      if (ngoId) {
+        router.push(`/ngos/${ngoId}/donate/success?streamId=${newStreamId}`);
+      }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Something went wrong.');
       setSubmitState('error');
