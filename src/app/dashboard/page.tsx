@@ -131,49 +131,74 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            <ul className="mt-8 space-y-4">
-              {streams.map((stream) => {
-                const remaining = formatRemainingDuration(stream.balance, stream.rate);
-                return (
-                  <li
-                    key={stream.id}
-                    className="rounded-lg border border-gray-200 p-6 dark:border-gray-800"
-                  >
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <Link
-                          href={`/ngos/${stream.ngo.id}`}
-                          className="font-semibold hover:underline"
-                        >
-                          {stream.ngo.name}
-                        </Link>
-                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                          {stream.status === 'ACTIVE' ? 'Active' : 'Cancelled'} · Balance{' '}
-                          {formatAmount(stream.balance)} · Withdrawn {formatAmount(stream.withdrawn)}
-                          {remaining ? ` · ${remaining}` : ''}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setDetailsStream(stream)}
-                          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
-                        >
-                          View details
-                        </button>
-                        {stream.status === 'ACTIVE' && (
-                          <StreamControls
-                            stream={stream}
-                            onChanged={refresh}
-                            onOptimisticUpdate={(patch) => applyOptimisticUpdate(stream.id, patch)}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="mt-8 overflow-x-auto">
+              <table
+                aria-label="Your donation streams"
+                className="w-full min-w-[900px] border-separate border-spacing-y-3 text-left"
+              >
+                <thead>
+                  <tr className="text-sm text-gray-500 dark:text-gray-400">
+                    <th scope="col" className="px-4 py-2 font-medium">NGO</th>
+                    <th scope="col" className="px-4 py-2 font-medium">Rate</th>
+                    <th scope="col" className="px-4 py-2 font-medium">Balance</th>
+                    <th scope="col" className="px-4 py-2 font-medium">Withdrawn</th>
+                    <th scope="col" className="px-4 py-2 font-medium">Status</th>
+                    <th scope="col" className="px-4 py-2 font-medium">Remaining</th>
+                    <th scope="col" className="px-4 py-2 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {streams.map((stream) => {
+                    const remaining = formatRemainingDuration(stream.balance, stream.rate);
+                    return (
+                      <tr key={stream.id}>
+                        <td className="rounded-l-lg border-y border-l border-gray-200 px-4 py-4 dark:border-gray-800">
+                          <Link
+                            href={`/ngos/${stream.ngo.id}`}
+                            className="font-semibold hover:underline"
+                          >
+                            {stream.ngo.name}
+                          </Link>
+                        </td>
+                        <td className="border-y border-gray-200 px-4 py-4 dark:border-gray-800">
+                          {formatAmount(stream.rate)} / second
+                        </td>
+                        <td className="border-y border-gray-200 px-4 py-4 dark:border-gray-800">
+                          {formatAmount(stream.balance)}
+                        </td>
+                        <td className="border-y border-gray-200 px-4 py-4 dark:border-gray-800">
+                          {formatAmount(stream.withdrawn)}
+                        </td>
+                        <td className="border-y border-gray-200 px-4 py-4 dark:border-gray-800">
+                          {stream.status === 'ACTIVE' ? 'Active' : 'Cancelled'}
+                        </td>
+                        <td className="border-y border-gray-200 px-4 py-4 dark:border-gray-800">
+                          {remaining || '—'}
+                        </td>
+                        <td className="rounded-r-lg border-y border-r border-gray-200 px-4 py-4 dark:border-gray-800">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setDetailsStream(stream)}
+                              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                            >
+                              View details
+                            </button>
+                            {stream.status === 'ACTIVE' && (
+                              <StreamControls
+                                stream={stream}
+                                onChanged={refresh}
+                                onOptimisticUpdate={(patch) => applyOptimisticUpdate(stream.id, patch)}
+                              />
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </main>
