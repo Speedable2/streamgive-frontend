@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useDonationVaultClient } from '@/lib/donationVaultClient';
+
 import { WithdrawButton } from './WithdrawButton';
 
 const NGO_ADDRESS = 'G' + 'N'.repeat(55);
@@ -27,12 +29,21 @@ const signAndSend = vi.fn();
 const withdraw = vi.fn(async () => ({ signAndSend }));
 
 vi.mock('@/lib/donationVaultClient', () => ({
-  getDonationVaultClient: vi.fn(async () => ({ withdraw })),
+  useDonationVaultClient: vi.fn(),
 }));
 
 describe('WithdrawButton', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useDonationVaultClient).mockReturnValue({ client: { withdraw } as never, ready: true });
+  });
+
+  it('disables the button and shows a loading label while the contract client is not ready', () => {
+    vi.mocked(useDonationVaultClient).mockReturnValue({ client: null, ready: false });
+
+    render(<WithdrawButton streamOnChainId="1" onWithdrawn={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Loading…' })).toBeDisabled();
   });
 
   it('withdraws and shows a success toast', async () => {
@@ -87,5 +98,19 @@ describe('WithdrawButton', () => {
     await user.click(screen.getByRole('button', { name: 'Withdraw' }));
 
     expect(await screen.findByRole('button', { name: 'Withdrawing…' })).toBeDisabled();
+  });
+
+  it('shows the estimated network fee once the transaction is assembled', async () => {
+    withdraw.mockResolvedValueOnce({
+      built: { fee: '1000000' },
+      signAndSend: () => new Promise(() => {}),
+    });
+    const user = userEvent.setup();
+
+    render(<WithdrawButton streamOnChainId="1" onWithdrawn={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Withdraw' }));
+
+    // 1 000 000 stroops = 0.1 XLM.
+    expect(await screen.findByText('Fee ≈ 0.1 XLM')).toBeInTheDocument();
   });
 });

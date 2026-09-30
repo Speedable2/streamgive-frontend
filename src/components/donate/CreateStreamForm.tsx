@@ -1,10 +1,12 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 
+import { ConnectWalletPrompt } from '@/components/common/ConnectWalletPrompt';
 import { useWallet } from '@/components/wallet/WalletProvider';
-import { getDonationVaultClient } from '@/lib/donationVaultClient';
-import { parseAmount, TOKEN_DECIMALS } from '@/lib/format';
+import { useDonationVaultClient } from '@/lib/donationVaultClient';
+import { formatEstimatedFee, parseAmount, TOKEN_DECIMALS } from '@/lib/format';
 import { DONATION_VAULT_CONTRACT_ID, getNativeAssetAddress, getUsdcAssetAddress } from '@/lib/stellar';
 
 const DURATIONS = [
@@ -18,7 +20,7 @@ type TokenChoice = 'native' | 'usdc' | 'custom';
 type SubmitState = 'idle' | 'signing' | 'success' | 'error';
 
 export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
-  const { address, connect, signTransaction } = useWallet();
+  const { address, signTransaction } = useWallet();
 
   const [tokenChoice, setTokenChoice] = useState<TokenChoice>('native');
   const [customToken, setCustomToken] = useState('');
@@ -27,6 +29,7 @@ export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
   const [submitState, setSubmitState] = useState<SubmitState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [streamId, setStreamId] = useState<string | null>(null);
+  const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
 
   const depositRaw = parseAmount(amount);
   const isAmountValid = depositRaw !== null;
@@ -43,16 +46,18 @@ export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
   const isTokenValid =
     tokenChoice !== 'custom' ||
     (customTokenTrimmed.length > 0 && STELLAR_CONTRACT_RE.test(customTokenTrimmed));
-  const canSubmit = isAmountValid && isRateValid && isTokenValid && submitState !== 'signing';
+  const canSubmit =
+    isAmountValid && isRateValid && isTokenValid && submitState !== 'signing' && ready;
 
   async function handleSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
-    if (!canSubmit || !address || depositRaw === null || rateRaw === null) {
+    if (!canSubmit || !address || !client || depositRaw === null || rateRaw === null) {
       return;
     }
 
     setSubmitState('signing');
     setErrorMessage(null);
+    setEstimatedFee(null);
 
     try {
       const tokenAddress =
@@ -62,7 +67,6 @@ export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
             ? getUsdcAssetAddress()
             : customToken.trim();
 
-      const client = await getDonationVaultClient(address, signTransaction);
       const tx = await client.create_stream({
         donor: address,
         ngo: ngoAddress,
@@ -70,13 +74,29 @@ export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
         deposit: depositRaw,
         rate: rateRaw,
       });
-      const { result } = await tx.signAndSend();
 
-      setStreamId(String(result));
+      // Client.create_stream already simulated the call to assemble this
+      // transaction, so the fee estimate is ready here — shown before
+      // signAndSend() goes on to trigger the wallet's signing prompt.
+      setEstimatedFee(formatEstimatedFee(tx.built?.fee));
+
+      const { result } = await tx.signAndSend();
+      const newStreamId = String(result);
+
+      setStreamId(newStreamId);
       setSubmitState('success');
+      setAmount('');
+      setDurationSeconds(DURATIONS[1].seconds);
+      setTokenChoice('native');
+      setCustomToken('');
+      if (ngoId) {
+        router.push(`/ngos/${ngoId}/donate/success?streamId=${newStreamId}`);
+      }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Something went wrong.');
       setSubmitState('error');
+    } finally {
+      setEstimatedFee(null);
     }
   }
 
@@ -93,34 +113,24 @@ export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
     );
   }
 
-  if (submitState === 'success' && streamId !== null) {
-    return (
-      <div className="rounded-lg border border-green-200 bg-green-50 p-6 dark:border-green-900 dark:bg-green-950">
-        <p className="font-medium text-green-800 dark:text-green-300">Stream started!</p>
-        <p className="mt-1 text-sm text-green-700 dark:text-green-400">
-          Stream #{streamId} is now active.
-        </p>
-      </div>
-    );
-  }
+  // We no longer return early here, as the user might want to create another stream.
 
   if (!address) {
-    return (
-      <div className="rounded-lg border border-gray-200 p-6 text-center dark:border-gray-800">
-        <p className="text-gray-600 dark:text-gray-400">Connect your wallet to start a stream.</p>
-        <button
-          type="button"
-          onClick={() => void connect()}
-          className="mt-4 rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
-        >
-          Connect Wallet
-        </button>
-      </div>
-    );
+    return <ConnectWalletPrompt message="Connect your wallet to start a stream." />;
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)} className="max-w-md space-y-6">
+    <div className="space-y-8">
+      {submitState === 'success' && streamId !== null && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-6 dark:border-green-900 dark:bg-green-950">
+          <p className="font-medium text-green-800 dark:text-green-300">Stream started!</p>
+          <p className="mt-1 text-sm text-green-700 dark:text-green-400">
+            Stream #{streamId} is now active.
+          </p>
+        </div>
+      )}
+
+      <form onSubmit={(event) => void handleSubmit(event)} className="max-w-md space-y-6">
       <fieldset>
         <legend className="text-sm font-medium">Token</legend>
         <div className="mt-2 flex gap-4 text-sm">
@@ -206,6 +216,12 @@ export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
         </p>
       )}
 
+      {submitState === 'signing' && estimatedFee && (
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Estimated network fee: {estimatedFee}
+        </p>
+      )}
+
       {submitState === 'error' && errorMessage && (
         <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
       )}
@@ -215,8 +231,13 @@ export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
         disabled={!canSubmit}
         className="w-full rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-gray-200"
       >
-        {submitState === 'signing' ? 'Confirm in your wallet…' : 'Review & Sign'}
+        {submitState === 'signing'
+          ? 'Confirm in your wallet…'
+          : !ready
+            ? 'Preparing contract…'
+            : 'Review & Sign'}
       </button>
     </form>
+    </div>
   );
 }
