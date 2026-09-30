@@ -22,6 +22,7 @@ export default function PlatformAdminPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmingRejectId, setConfirmingRejectId] = useState<string | null>(null);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [statusFilter, setStatusFilter] = useState<'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
   const [revokeConfirmId, setRevokeConfirmId] = useState<string | null>(null);
@@ -89,6 +90,7 @@ export default function PlatformAdminPage() {
     try {
       await reviewNgoApplication(address, signMessage, app.id, 'reject', reviewNotes[app.id]);
       showToast('info', `${app.name} rejected.`);
+      setConfirmingRejectId(null);
       await refresh();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Something went wrong.');
@@ -195,23 +197,45 @@ export default function PlatformAdminPage() {
                     </p>
                   </div>
                   <div className="flex w-full shrink-0 flex-col gap-2 sm:w-64">
-                    {app.status === 'PENDING' ? (
-                      <>
-                        <label className="block">
-                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                            Review note (optional)
+                    <label className="block">
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                        Review note (optional)
+                      </span>
+                      <textarea
+                        value={reviewNotes[app.id] ?? ''}
+                        onChange={(event) =>
+                          setReviewNotes((notes) => ({ ...notes, [app.id]: event.target.value }))
+                        }
+                        rows={2}
+                        placeholder="Why is this approved or rejected?"
+                        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+                      />
+                    </label>
+                    <div className="flex gap-2">
+                      {confirmingRejectId === app.id ? (
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <span className="text-sm text-gray-600 dark:text-gray-400">
+                            Reject this application?
                           </span>
-                          <textarea
-                            value={reviewNotes[app.id] ?? ''}
-                            onChange={(event) =>
-                              setReviewNotes((notes) => ({ ...notes, [app.id]: event.target.value }))
-                            }
-                            rows={2}
-                            placeholder="Why is this approved or rejected?"
-                            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
-                          />
-                        </label>
-                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleReject(app)}
+                            disabled={busyId === app.id}
+                            className="rounded-md bg-red-600 px-3 py-1 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 dark:bg-red-500 dark:hover:bg-red-600"
+                          >
+                            {busyId === app.id ? 'Working…' : 'Yes, reject'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmingRejectId(null)}
+                            disabled={busyId === app.id}
+                            className="rounded-md border border-gray-300 px-3 py-1 text-sm font-medium disabled:opacity-50 dark:border-gray-700"
+                          >
+                            Never mind
+                          </button>
+                        </div>
+                      ) : (
+                        <>
                           <button
                             type="button"
                             onClick={() => void handleApprove(app)}
@@ -222,12 +246,15 @@ export default function PlatformAdminPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => void handleReject(app)}
+                            onClick={() => setConfirmingRejectId(app.id)}
                             disabled={busyId === app.id}
                             className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800"
                           >
                             Reject
                           </button>
+                        </>
+                      )}
+                    </div>
                         </div>
                       </>
                     ) : (
