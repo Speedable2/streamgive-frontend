@@ -38,7 +38,7 @@ export function Header() {
       <div className="flex items-center justify-between">
         <Link
           href="/"
-          className="flex items-center gap-2 text-lg font-bold"
+          className="flex items-center gap-2 rounded-md text-lg font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 dark:focus-visible:ring-teal-400"
           onClick={() => setMenuOpen(false)}
         >
           <Logo className="h-5 w-auto" />
@@ -50,7 +50,7 @@ export function Header() {
             <Link
               key={link.href}
               href={link.href}
-              className="text-sm font-medium text-gray-600 hover:text-black dark:text-gray-400 dark:hover:text-white"
+              className="rounded-md text-sm font-medium text-gray-600 hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 dark:text-gray-400 dark:hover:text-white dark:focus-visible:ring-teal-400"
             >
               {link.label}
             </Link>
@@ -67,7 +67,7 @@ export function Header() {
             aria-expanded={menuOpen}
             aria-controls="mobile-nav"
             aria-label="Toggle menu"
-            className="rounded-md p-2 hover:bg-gray-100 dark:hover:bg-gray-800"
+            className="rounded-md p-2 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 dark:hover:bg-gray-800 dark:focus-visible:ring-teal-400"
           >
             <svg
               aria-hidden="true"
@@ -94,7 +94,7 @@ export function Header() {
               key={link.href}
               href={link.href}
               onClick={() => setMenuOpen(false)}
-              className="text-sm font-medium text-gray-600 hover:text-black dark:text-gray-400 dark:hover:text-white"
+              className="rounded-md text-sm font-medium text-gray-600 hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 dark:text-gray-400 dark:hover:text-white dark:focus-visible:ring-teal-400"
             >
               {link.label}
             </Link>

@@ -100,6 +100,23 @@ export function formatRemainingDuration(balance: string, rate: string): string {
   return `~${pluralize(Math.floor(totalSeconds / SECONDS_PER_DAY), 'day')} remaining`;
 }
 
+/**
+ * Formats a transaction's estimated network fee (in stroops, XLM's base
+ * unit) into a human-readable XLM amount for display next to a pending
+ * contract call.
+ *
+ * @param feeStroops - The raw fee as returned on `tx.built?.fee` (a decimal
+ * string of stroops), or `undefined` if the transaction hasn't been built
+ * yet.
+ * @returns `"≈ <amount> XLM"`, or `null` if no fee is available yet.
+ */
+export function formatEstimatedFee(feeStroops: string | undefined): string | null {
+  if (feeStroops === undefined) {
+    return null;
+  }
+  return `≈ ${formatAmount(feeStroops)} XLM`;
+}
+
 /** Shortens a wallet/contract address to its first and last 4 characters.
  * Returns the original string unchanged if it is too short to truncate
  * without the two halves overlapping (i.e. fewer than 9 characters). */
