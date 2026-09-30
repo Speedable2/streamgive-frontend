@@ -1,13 +1,18 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 
 import { ConnectWalletPrompt } from '@/components/common/ConnectWalletPrompt';
 import { useWallet } from '@/components/wallet/WalletProvider';
 import { useDonationVaultClient } from '@/lib/donationVaultClient';
-import { formatEstimatedFee, parseAmount, TOKEN_DECIMALS } from '@/lib/format';
-import { DONATION_VAULT_CONTRACT_ID, getNativeAssetAddress, getUsdcAssetAddress } from '@/lib/stellar';
+import { formatAmount, formatEstimatedFee, parseAmount, TOKEN_DECIMALS } from '@/lib/format';
+import {
+  DONATION_VAULT_CONTRACT_ID,
+  getNativeAssetAddress,
+  getTokenBalance,
+  getUsdcAssetAddress,
+} from '@/lib/stellar';
 
 const DURATIONS = [
   { label: '1 week', seconds: 7 * 24 * 60 * 60 },
@@ -19,8 +24,16 @@ const DURATIONS = [
 type TokenChoice = 'native' | 'usdc' | 'custom';
 type SubmitState = 'idle' | 'signing' | 'success' | 'error';
 
-export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
+export function CreateStreamForm({
+  ngoAddress,
+  ngoId,
+}: {
+  ngoAddress: string;
+  ngoId?: string;
+}) {
+  const router = useRouter();
   const { address, signTransaction } = useWallet();
+  const { client, ready } = useDonationVaultClient();
 
   const [tokenChoice, setTokenChoice] = useState<TokenChoice>('native');
   const [customToken, setCustomToken] = useState('');
@@ -30,6 +43,8 @@ export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [streamId, setStreamId] = useState<string | null>(null);
   const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
+  const [walletBalance, setWalletBalance] = useState<string | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
 
   const depositRaw = parseAmount(amount);
   const isAmountValid = depositRaw !== null;
@@ -46,12 +61,68 @@ export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
   const isTokenValid =
     tokenChoice !== 'custom' ||
     (customTokenTrimmed.length > 0 && STELLAR_CONTRACT_RE.test(customTokenTrimmed));
+
+  // The token address actually being donated in, resolved the same way for
+  // both the balance check below and the real create_stream call — null
+  // while "Custom asset" is selected but its address isn't valid/complete
+  // yet, since there is nothing to look a balance up for in that case.
+  const selectedTokenAddress =
+    tokenChoice === 'native'
+      ? getNativeAssetAddress()
+      : tokenChoice === 'usdc'
+        ? getUsdcAssetAddress()
+        : isCustomTokenFormatValid && customTokenTrimmed.length > 0
+          ? customTokenTrimmed
+          : null;
+
+  const insufficientBalance =
+    walletBalance !== null && depositRaw !== null && depositRaw > BigInt(walletBalance);
+
   const canSubmit =
-    isAmountValid && isRateValid && isTokenValid && submitState !== 'signing' && ready;
+    isAmountValid &&
+    isRateValid &&
+    isTokenValid &&
+    !insufficientBalance &&
+    submitState !== 'signing' &&
+    ready;
+
+  useEffect(() => {
+    if (!address || !selectedTokenAddress) {
+      setWalletBalance(null);
+      return;
+    }
+
+    let cancelled = false;
+    setBalanceLoading(true);
+    setWalletBalance(null);
+
+    getTokenBalance(selectedTokenAddress, address)
+      .then((balance) => {
+        if (!cancelled) {
+          setWalletBalance(balance);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setBalanceLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [address, selectedTokenAddress]);
 
   async function handleSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
-    if (!canSubmit || !address || !client || depositRaw === null || rateRaw === null) {
+    if (
+      !canSubmit ||
+      !address ||
+      !client ||
+      !selectedTokenAddress ||
+      depositRaw === null ||
+      rateRaw === null
+    ) {
       return;
     }
 
@@ -60,17 +131,10 @@ export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
     setEstimatedFee(null);
 
     try {
-      const tokenAddress =
-        tokenChoice === 'native'
-          ? getNativeAssetAddress()
-          : tokenChoice === 'usdc'
-            ? getUsdcAssetAddress()
-            : customToken.trim();
-
       const tx = await client.create_stream({
         donor: address,
         ngo: ngoAddress,
-        token: tokenAddress,
+        token: selectedTokenAddress,
         deposit: depositRaw,
         rate: rateRaw,
       });
@@ -186,6 +250,18 @@ export function CreateStreamForm({ ngoAddress }: { ngoAddress: string }) {
           placeholder="100"
           className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
         />
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {balanceLoading
+            ? 'Checking wallet balance…'
+            : walletBalance !== null
+              ? `Wallet balance: ${formatAmount(walletBalance)}`
+              : null}
+        </p>
+        {insufficientBalance && (
+          <p className="mt-1 text-sm text-amber-600 dark:text-amber-400">
+            This exceeds your wallet balance — the transaction will fail.
+          </p>
+        )}
       </label>
 
       <label className="block">

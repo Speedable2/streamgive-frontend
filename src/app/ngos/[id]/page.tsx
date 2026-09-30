@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
 import { CopyLinkButton } from '@/components/common/CopyLinkButton';
+import { DonateQrCode } from '@/components/ngos/DonateQrCode';
 import { getNgo, getStreams, type NgoProfile, type Stream } from '@/lib/api';
 import { formatAmount, truncateAddress } from '@/lib/format';
 import { explorerUrl } from '@/lib/stellar';
@@ -106,12 +107,16 @@ export default async function NgoProfilePage({ params }: Props) {
           </div>
         </dl>
 
-        <Link
-          href={`/ngos/${ngo.id}/donate`}
-          className="mt-10 inline-block rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
-        >
-          Start streaming
-        </Link>
+        <div className="mt-10 flex flex-wrap items-start gap-8">
+          <Link
+            href={`/ngos/${ngo.id}/donate`}
+            className="inline-block rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+          >
+            Start streaming
+          </Link>
+
+          <DonateQrCode ngoId={ngo.id} ngoName={ngo.name} />
+        </div>
 
         <h2 className="mt-12 text-lg font-semibold">Recent streams</h2>
         {recentStreams.length === 0 ? (

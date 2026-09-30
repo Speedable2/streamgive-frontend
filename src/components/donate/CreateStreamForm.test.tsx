@@ -10,6 +10,7 @@ const DONOR_ADDRESS = 'G' + 'D'.repeat(55);
 const NGO_ADDRESS = 'G' + 'N'.repeat(55);
 const NGO_ID = 'ngo-1';
 const NATIVE_TOKEN_ADDRESS = 'CNATIVEFAKE';
+const CUSTOM_TOKEN_ADDRESS = 'C' + 'T'.repeat(55);
 
 const mockSignTransaction = vi.fn();
 const mockPush = vi.fn();
@@ -29,8 +30,13 @@ vi.mock('@/components/wallet/WalletProvider', () => ({
   }),
 }));
 
+const mockGetTokenBalance = vi.fn();
+
 vi.mock('@/lib/stellar', () => ({
+  DONATION_VAULT_CONTRACT_ID: 'CDONATIONVAULTFAKE',
   getNativeAssetAddress: () => NATIVE_TOKEN_ADDRESS,
+  getUsdcAssetAddress: () => 'CUSDCFAKE',
+  getTokenBalance: (...args: unknown[]) => mockGetTokenBalance(...args),
 }));
 
 const mockCreateStream = vi.fn();
@@ -43,6 +49,8 @@ describe('CreateStreamForm', () => {
   beforeEach(() => {
     mockCreateStream.mockReset();
     mockPush.mockReset();
+    mockGetTokenBalance.mockReset();
+    mockGetTokenBalance.mockResolvedValue('50000000000'); // 5,000 in raw units
     vi.mocked(useDonationVaultClient).mockReturnValue({
       client: { create_stream: mockCreateStream } as never,
       ready: true,
@@ -81,7 +89,7 @@ describe('CreateStreamForm', () => {
     const submit = screen.getByRole('button', { name: /review & sign/i });
     expect(submit).toBeDisabled();
 
-    await user.type(screen.getByPlaceholderText(/token contract address/i), 'CTOKENADDRESS');
+    await user.type(screen.getByPlaceholderText(/token contract address/i), CUSTOM_TOKEN_ADDRESS);
     expect(submit).not.toBeDisabled();
   });
 
@@ -104,7 +112,7 @@ describe('CreateStreamForm', () => {
 
     // Switch to custom and type an address so the button is enabled.
     await user.click(screen.getByLabelText(/custom asset/i));
-    await user.type(screen.getByPlaceholderText(/token contract address/i), 'CTOKENADDRESS');
+    await user.type(screen.getByPlaceholderText(/token contract address/i), CUSTOM_TOKEN_ADDRESS);
     expect(screen.getByRole('button', { name: /review & sign/i })).not.toBeDisabled();
 
     // Switch back to native XLM — the custom address no longer matters.
@@ -168,5 +176,52 @@ describe('CreateStreamForm', () => {
 
     // 1 000 000 stroops = 0.1 XLM.
     expect(await screen.findByText(/estimated network fee: ≈ 0.1 xlm/i)).toBeInTheDocument();
+  });
+
+  it('fetches and displays the wallet balance for the selected token', async () => {
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+
+    expect(await screen.findByText(/wallet balance: 5,000/i)).toBeInTheDocument();
+    expect(mockGetTokenBalance).toHaveBeenCalledWith(NATIVE_TOKEN_ADDRESS, DONOR_ADDRESS);
+  });
+
+  it('re-fetches the balance when the selected token changes', async () => {
+    const user = userEvent.setup();
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+
+    await screen.findByText(/wallet balance: 5,000/i);
+    mockGetTokenBalance.mockClear();
+    mockGetTokenBalance.mockResolvedValue('20000000000'); // 2,000
+
+    await user.click(screen.getByLabelText(/usdc/i));
+
+    expect(await screen.findByText(/wallet balance: 2,000/i)).toBeInTheDocument();
+    expect(mockGetTokenBalance).toHaveBeenCalledWith('CUSDCFAKE', DONOR_ADDRESS);
+  });
+
+  it('warns and disables submit when the entered amount exceeds the wallet balance', async () => {
+    mockGetTokenBalance.mockResolvedValue('500000000'); // 50
+
+    const user = userEvent.setup();
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+
+    await screen.findByText(/wallet balance: 50/i);
+    await user.type(screen.getByPlaceholderText('100'), '100');
+
+    expect(
+      screen.getByText(/exceeds your wallet balance — the transaction will fail/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /review & sign/i })).toBeDisabled();
+  });
+
+  it('does not warn when the entered amount is within the wallet balance', async () => {
+    const user = userEvent.setup();
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+
+    await screen.findByText(/wallet balance: 5,000/i);
+    await user.type(screen.getByPlaceholderText('100'), '100');
+
+    expect(screen.queryByText(/exceeds your wallet balance/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /review & sign/i })).not.toBeDisabled();
   });
 });

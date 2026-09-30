@@ -35,8 +35,8 @@ export function EmbedSnippet({ ngoId }: { ngoId: string }) {
   );
 
   const [preset, setPreset] = useState<PresetKey>('standard');
-  const [customWidth, setCustomWidth] = useState(SIZE_PRESETS.custom.width);
-  const [customHeight, setCustomHeight] = useState(SIZE_PRESETS.custom.height);
+  const [customWidth, setCustomWidth] = useState<number>(SIZE_PRESETS.custom.width);
+  const [customHeight, setCustomHeight] = useState<number>(SIZE_PRESETS.custom.height);
 
   const { width, height } =
     preset === 'custom' ? { width: customWidth, height: customHeight } : SIZE_PRESETS[preset];
