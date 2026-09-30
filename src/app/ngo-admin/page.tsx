@@ -4,16 +4,14 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
 import { ConnectWalletPrompt } from '@/components/common/ConnectWalletPrompt';
-import { CopyAddressButton } from '@/components/common/CopyAddressButton';
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
 import { DonateQrCode } from '@/components/ngos/DonateQrCode';
 import { EmbedSnippet } from '@/components/ngoAdmin/EmbedSnippet';
-import { WithdrawButton } from '@/components/ngoAdmin/WithdrawButton';
+import { NgoAdminStreamList } from '@/components/ngoAdmin/NgoAdminStreamList';
 import { StreamDetailsModal } from '@/components/streams/StreamDetailsModal';
 import { useWallet } from '@/components/wallet/WalletProvider';
 import { getStreams, lookupNgoByAddress, type Ngo, type Stream } from '@/lib/api';
-import { formatAmount, truncateAddress } from '@/lib/format';
 
 export default function NgoAdminPage() {
   const { address } = useWallet();
@@ -143,48 +141,11 @@ export default function NgoAdminPage() {
 
             <EmbedSnippet ngoId={ngo.id} />
 
-            {streams.length === 0 ? (
-              <p className="mt-8 text-gray-600 dark:text-gray-400">
-                No one has started a stream to you yet.
-              </p>
-            ) : (
-              <ul className="mt-8 space-y-4">
-                {streams.map((stream) => (
-                  <li
-                    key={stream.id}
-                    className="rounded-lg border border-gray-200 p-6 dark:border-gray-800"
-                  >
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-mono text-sm">{truncateAddress(stream.donor.address)}</p>
-                          <CopyAddressButton address={stream.donor.address} />
-                        </div>
-                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                          {stream.status === 'ACTIVE' ? 'Active' : 'Cancelled'} · Balance{' '}
-                          {formatAmount(stream.balance)} · Withdrawn {formatAmount(stream.withdrawn)}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setDetailsStream(stream)}
-                          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
-                        >
-                          View details
-                        </button>
-                        {stream.status === 'ACTIVE' && (
-                          <WithdrawButton
-                            streamOnChainId={stream.onChainId}
-                            onWithdrawn={() => void refresh()}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <NgoAdminStreamList
+              streams={streams}
+              onWithdrawn={() => void refresh()}
+              onViewDetails={setDetailsStream}
+            />
           </>
         )}
       </main>
