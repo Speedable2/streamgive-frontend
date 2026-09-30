@@ -25,6 +25,19 @@ describe('formatAmount', () => {
       (9_000_000).toLocaleString(undefined, { maximumFractionDigits: 7 }),
     );
   });
+
+  it('does not lose precision for a raw amount past Number.MAX_SAFE_INTEGER', () => {
+    // 9007199254740993 can't be represented exactly as a JS double (it
+    // rounds down to ...992), so a naive Number(BigInt(raw)) conversion
+    // would corrupt the last digit before the division even happens.
+    const raw = '9007199254740993';
+    const expectedWhole = (900719925n).toLocaleString(undefined);
+    const decimalSeparator = (1.1).toLocaleString(undefined, {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    })[1];
+    expect(formatAmount(raw)).toBe(`${expectedWhole}${decimalSeparator}4740993`);
+  });
 });
 
 describe('truncateAddress', () => {

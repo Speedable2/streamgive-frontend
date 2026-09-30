@@ -42,7 +42,23 @@ type WalletContextValue = {
   disconnect: () => void;
   signTransaction: WalletSignTransaction;
   signMessage: WalletSignMessage;
+  /** True once a connected wallet reports a network passphrase that doesn't
+   * match NETWORK_PASSPHRASE — signing will still open, but the resulting
+   * transaction is built for the wrong network and fails on submission. */
+  networkMismatch: boolean;
 };
+
+/** Not every wallet supports SEP-43's getNetwork() (e.g. some wallets that
+ * only ever operate on one fixed network don't implement it) — treat that
+ * as "can't tell", not as a mismatch. */
+async function walletNetworkMismatch(): Promise<boolean> {
+  try {
+    const { networkPassphrase } = await StellarWalletsKit.getNetwork();
+    return networkPassphrase !== NETWORK_PASSPHRASE;
+  } catch {
+    return false;
+  }
+}
 
 const WalletContext = createContext<WalletContextValue | null>(null);
 
@@ -108,6 +124,7 @@ function ensureKitInitialized(): void {
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [address, setAddress] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [networkMismatch, setNetworkMismatch] = useState(false);
 
   useEffect(() => {
     ensureKitInitialized();
@@ -116,7 +133,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     // getAddress() throws when nothing's connected yet — that's the
     // expected, common case, not an error worth surfacing.
     StellarWalletsKit.getAddress()
-      .then(({ address }) => setAddress(address))
+      .then(({ address }) => {
+        setAddress(address);
+        return walletNetworkMismatch();
+      })
+      .then(setNetworkMismatch)
       .catch(() => {});
   }, []);
 
@@ -126,6 +147,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       const { address } = await StellarWalletsKit.authModal();
       setAddress(address);
+      setNetworkMismatch(await walletNetworkMismatch());
     } finally {
       setConnecting(false);
     }
@@ -136,6 +158,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     // extension itself stays authorized. This just forgets the address on
     // our side, which is what "disconnect" means for most dApps anyway.
     setAddress(null);
+    setNetworkMismatch(false);
   }, []);
 
   const signTransaction: WalletSignTransaction = useCallback(
@@ -171,8 +194,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ address, connecting, connect, disconnect, signTransaction, signMessage }),
-    [address, connecting, connect, disconnect, signTransaction, signMessage],
+    () => ({
+      address,
+      connecting,
+      connect,
+      disconnect,
+      signTransaction,
+      signMessage,
+      networkMismatch,
+    }),
+    [address, connecting, connect, disconnect, signTransaction, signMessage, networkMismatch],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

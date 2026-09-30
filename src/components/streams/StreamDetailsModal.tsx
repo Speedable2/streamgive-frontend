@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 
 import type { Stream } from '@/lib/api';
@@ -17,12 +18,69 @@ function tokenLabel(tokenAddress: string): string {
 }
 
 export function StreamDetailsModal({ stream, onClose }: { stream: Stream; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const triggerElement = document.activeElement as HTMLElement | null;
+
+    // Move focus to close button after a tiny tick to ensure render is complete, though React effects usually suffice.
+    if (closeButtonRef.current) {
+      closeButtonRef.current.focus();
+    }
+
+    return () => {
+      if (triggerElement && typeof triggerElement.focus === 'function') {
+        triggerElement.focus();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+      
+      if (event.key === 'Tab') {
+        if (!dialogRef.current) return;
+        
+        const focusableElements = dialogRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button, input, textarea, select, details, [tabindex]:not([tabindex="-1"])'
+        );
+        const focusable = Array.from(focusableElements).filter(el => !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true');
+        
+        if (focusable.length === 0) return;
+        
+        const firstElement = focusable[0];
+        const lastElement = focusable[focusable.length - 1];
+
+        if (event.shiftKey) {
+          if (document.activeElement === firstElement) {
+            lastElement.focus();
+            event.preventDefault();
+          }
+        } else {
+          if (document.activeElement === lastElement) {
+            firstElement.focus();
+            event.preventDefault();
+          }
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="stream-details-heading"
@@ -35,6 +93,7 @@ export function StreamDetailsModal({ stream, onClose }: { stream: Stream; onClos
           </h2>
           <button
             type="button"
+            ref={closeButtonRef}
             onClick={onClose}
             aria-label="Close"
             className="text-xl leading-none text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
