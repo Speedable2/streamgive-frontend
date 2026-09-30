@@ -7,6 +7,17 @@ import { Header } from '@/components/layout/Header';
 import { formatAmount } from '@/lib/format';
 import { loadPlatformImpact, type PlatformImpact } from '@/lib/impact';
 
+// Polling architecture (acknowledged tech debt — see README's Troubleshooting
+// section for the user-facing symptom):
+// There's no push channel (websocket/SSE) from the backend, so "live" impact
+// numbers are simulated by re-fetching on a timer. Each tick calls
+// `loadPlatformImpact()`, which itself does one N+1 fetch (list every NGO,
+// then fetch each NGO's profile individually and sum client-side — see
+// src/lib/impact.ts) because there's no platform-wide aggregate endpoint.
+// That means every 20s this page issues 1 + N requests, where N is the
+// verified NGO count. Fine while N is small; the interval and/or the N+1
+// fetch are the first things to revisit if the NGO list grows or the
+// backend gains a real aggregate/streaming endpoint.
 const POLL_INTERVAL_MS = 20_000;
 
 export default function ImpactPage() {
@@ -24,8 +35,6 @@ export default function ImpactPage() {
 
   useEffect(() => {
     refresh();
-    // Simulates "live" via polling — there's no websocket/SSE push from
-    // the backend to actually stream updates.
     const interval = setInterval(refresh, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [refresh]);

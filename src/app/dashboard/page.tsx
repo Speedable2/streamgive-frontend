@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
+import { ConnectWalletPrompt } from '@/components/common/ConnectWalletPrompt';
 import { StreamControls } from '@/components/dashboard/StreamControls';
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
@@ -10,7 +11,12 @@ import { StreamDetailsModal } from '@/components/streams/StreamDetailsModal';
 import { useWallet } from '@/components/wallet/WalletProvider';
 import { getStreams, type Stream } from '@/lib/api';
 import { buildDonationHistoryCsv } from '@/lib/csv';
-import { formatAmount } from '@/lib/format';
+import { formatAmount, formatRemainingDuration } from '@/lib/format';
+
+// Client-side pagination over the already-fetched list — same interim
+// approach as NgoExplorer, until the backend exposes real limit/offset
+// pagination for /streams.
+const PAGE_SIZE = 10;
 
 function LiveBalance({ stream }: { stream: Stream }) {
   const [estimatedBalance, setEstimatedBalance] = useState<bigint>(BigInt(stream.balance));
@@ -62,11 +68,22 @@ function downloadDonationHistoryCsv(streams: Stream[]): void {
 }
 
 export default function DashboardPage() {
-  const { address, connect } = useWallet();
+  const { address } = useWallet();
   const [streams, setStreams] = useState<Stream[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [detailsStream, setDetailsStream] = useState<Stream | null>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // Drop any streams fetched under a previous address as soon as `address`
+  // changes, during render rather than in an effect, so a stale list from
+  // the old wallet is never painted (even briefly) under the new one.
+  const [prevAddress, setPrevAddress] = useState(address);
+  if (address !== prevAddress) {
+    setPrevAddress(address);
+    setStreams([]);
+    setLoadError(false);
+  }
 
   const refresh = useCallback(() => {
     if (!address) {
@@ -92,11 +109,17 @@ export default function DashboardPage() {
     refresh();
   }, [refresh]);
 
+  const applyOptimisticUpdate = useCallback((streamId: string, patch: Partial<Stream>) => {
+    setStreams((prev) => prev.map((s) => (s.id === streamId ? { ...s, ...patch } : s)));
+  }, []);
+
   const totalCommitted = streams.reduce(
     (sum, s) => sum + BigInt(s.balance) + BigInt(s.withdrawn),
     0n,
   );
   const activeCount = streams.filter((s) => s.status === 'ACTIVE').length;
+  const visibleStreams = streams.slice(0, visibleCount);
+  const hasMore = visibleCount < streams.length;
 
   return (
     <>
@@ -105,16 +128,7 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold">Your donations</h1>
 
         {!address && (
-          <div className="mt-8 rounded-lg border border-gray-200 p-6 text-center dark:border-gray-800">
-            <p className="text-gray-600 dark:text-gray-400">Connect your wallet to see your streams.</p>
-            <button
-              type="button"
-              onClick={() => void connect()}
-              className="mt-4 rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
-            >
-              Connect Wallet
-            </button>
-          </div>
+          <ConnectWalletPrompt className="mt-8" message="Connect your wallet to see your streams." />
         )}
 
         {address && loading && (
@@ -142,7 +156,11 @@ export default function DashboardPage() {
         {address && !loading && !loadError && streams.length > 0 && (
           <>
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <dl className="grid grid-cols-2 gap-6 sm:w-fit sm:grid-cols-2">
+              <dl className="grid grid-cols-3 gap-6 sm:w-fit sm:grid-cols-3">
+                <div>
+                  <dt className="text-sm text-gray-500 dark:text-gray-400">Total streams</dt>
+                  <dd className="text-lg font-semibold">{streams.length}</dd>
+                </div>
                 <div>
                   <dt className="text-sm text-gray-500 dark:text-gray-400">Total committed</dt>
                   <dd className="text-lg font-semibold">
@@ -195,10 +213,22 @@ export default function DashboardPage() {
                         <StreamControls stream={stream} onChanged={refresh} />
                       )}
                     </div>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
+
+            {hasMore && (
+              <div className="mt-8 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                  className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                >
+                  Load more
+                </button>
+              </div>
+            )}
           </>
         )}
       </main>

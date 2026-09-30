@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
+import { ConnectWalletPrompt } from '@/components/common/ConnectWalletPrompt';
 import { CopyAddressButton } from '@/components/common/CopyAddressButton';
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
@@ -14,13 +15,24 @@ import { getStreams, lookupNgoByAddress, type Ngo, type Stream } from '@/lib/api
 import { formatAmount, truncateAddress } from '@/lib/format';
 
 export default function NgoAdminPage() {
-  const { address, connect } = useWallet();
+  const { address } = useWallet();
   // undefined = not looked up yet, null = this address has no NGO record at all
   const [ngo, setNgo] = useState<Ngo | null | undefined>(undefined);
   const [streams, setStreams] = useState<Stream[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [detailsStream, setDetailsStream] = useState<Stream | null>(null);
+
+  // Drop any NGO match/streams fetched under a previous address as soon as
+  // `address` changes, during render rather than in an effect, so stale data
+  // from the old wallet is never painted (even briefly) under the new one.
+  const [prevAddress, setPrevAddress] = useState(address);
+  if (address !== prevAddress) {
+    setPrevAddress(address);
+    setNgo(undefined);
+    setStreams([]);
+    setLoadError(false);
+  }
 
   const refresh = useCallback(async () => {
     if (!address) {
@@ -61,18 +73,10 @@ export default function NgoAdminPage() {
         <h1 className="text-2xl font-bold">NGO admin</h1>
 
         {!address && (
-          <div className="mt-8 rounded-lg border border-gray-200 p-6 text-center dark:border-gray-800">
-            <p className="text-gray-600 dark:text-gray-400">
-              Connect your NGO&apos;s wallet to manage your streams.
-            </p>
-            <button
-              type="button"
-              onClick={() => void connect()}
-              className="mt-4 rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
-            >
-              Connect Wallet
-            </button>
-          </div>
+          <ConnectWalletPrompt
+            className="mt-8"
+            message="Connect your NGO's wallet to manage your streams."
+          />
         )}
 
         {address && loading && (
