@@ -79,6 +79,26 @@ describe('CreateStreamForm', () => {
     expect(submit).not.toBeDisabled();
   });
 
+  it('recalculates the displayed per-second rate as the amount and duration change', async () => {
+    const user = userEvent.setup();
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+
+    // 100 XLM over the default 1-month duration.
+    await user.type(screen.getByPlaceholderText('100'), '100');
+    expect(screen.getByText("That's roughly 0.0000385 per second.")).toBeInTheDocument();
+
+    // Same amount, switched to the shorter 1-week duration — same deposit
+    // spread over fewer seconds means a higher rate.
+    await user.selectOptions(screen.getByLabelText(/stream over/i), '1 week');
+    expect(screen.getByText("That's roughly 0.0001653 per second.")).toBeInTheDocument();
+
+    // Doubling the amount at the same (1-week) duration doubles the rate.
+    const amountInput = screen.getByPlaceholderText('100');
+    await user.clear(amountInput);
+    await user.type(amountInput, '200');
+    expect(screen.getByText("That's roughly 0.0003306 per second.")).toBeInTheDocument();
+  });
+
   it('requires a token address once "Custom asset" is selected', async () => {
     const user = userEvent.setup();
     render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
@@ -97,8 +117,13 @@ describe('CreateStreamForm', () => {
     const user = userEvent.setup();
     render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
 
-    // 0.0000001 * 10^7 = 1 raw unit; 1 / (30 days in seconds) rounds to 0.
-    await user.type(screen.getByPlaceholderText('100'), '0.0000001');
+    // 0.000001 * 10^7 = 10 raw units; 10 / (30 days in seconds) rounds to 0.
+    // (Not 0.0000001: jsdom's number input normalizes that to "1e-7" once
+    // committed, same as a real browser would for a value below 1e-6, and
+    // parseAmount's plain-decimal regex doesn't parse scientific notation —
+    // this value stays in plain decimal form and still exercises the same
+    // "deposit parses, but rounds to a zero rate" path.)
+    await user.type(screen.getByPlaceholderText('100'), '0.000001');
 
     expect(screen.getByText(/too small to stream over this duration/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /review & sign/i })).toBeDisabled();
