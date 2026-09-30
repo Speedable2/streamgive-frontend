@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 
+import { EnvironmentBanner } from '@/components/common/EnvironmentBanner';
 import { ToastProvider } from '@/components/toast/ToastProvider';
 import { WalletProvider } from '@/components/wallet/WalletProvider';
 import { THEME_INIT_SCRIPT } from '@/lib/theme';
@@ -60,6 +61,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} bg-white text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100`}
       >
+        <EnvironmentBanner />
         <ToastProvider>
           <WalletProvider>{children}</WalletProvider>
         </ToastProvider>

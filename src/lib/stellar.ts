@@ -43,8 +43,17 @@ export function getUsdcAssetAddress(): string {
 
 const PUBLIC_NETWORK_PASSPHRASE = 'Public Global Stellar Network ; September 2015';
 
+/**
+ * Whether NETWORK_PASSPHRASE points at Stellar's mainnet, as opposed to
+ * testnet or any other (e.g. local/futurenet) network. Donors are moving
+ * real funds only when this is true — EnvironmentBanner and anything else
+ * that needs to gate on "is this real money" should derive from this
+ * rather than re-deriving its own passphrase comparison.
+ */
+export const IS_MAINNET = NETWORK_PASSPHRASE === PUBLIC_NETWORK_PASSPHRASE;
+
 /** Human-readable name for whichever network NETWORK_PASSPHRASE selects. */
-export const NETWORK_NAME = NETWORK_PASSPHRASE === PUBLIC_NETWORK_PASSPHRASE ? 'Mainnet' : 'Testnet';
+export const NETWORK_NAME = IS_MAINNET ? 'Mainnet' : 'Testnet';
 
 /**
  * Builds a stellar.expert URL for an account (wallet/NGO) or contract
