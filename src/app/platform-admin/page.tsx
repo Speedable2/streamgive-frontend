@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { ConnectWalletPrompt } from '@/components/common/ConnectWalletPrompt';
 import { CopyAddressButton } from '@/components/common/CopyAddressButton';
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
@@ -9,17 +10,18 @@ import { useToast } from '@/components/toast/ToastProvider';
 import { useWallet } from '@/components/wallet/WalletProvider';
 import type { NgoApplication } from '@/lib/api';
 import { listNgoApplications, reviewNgoApplication } from '@/lib/adminApi';
-import { truncateAddress } from '@/lib/format';
-import { getNgoRegistryClient } from '@/lib/ngoRegistryClient';
+import { formatEstimatedFee, truncateAddress } from '@/lib/format';
+import { useNgoRegistryClient } from '@/lib/ngoRegistryClient';
 
 export default function PlatformAdminPage() {
-  const { address, connect, signMessage, signTransaction } = useWallet();
+  const { address, signMessage, signTransaction } = useWallet();
   const { showToast } = useToast();
   const [applications, setApplications] = useState<NgoApplication[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
+  const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!address) return;
@@ -49,7 +51,7 @@ export default function PlatformAdminPage() {
   }, [refresh]);
 
   async function handleApprove(app: NgoApplication): Promise<void> {
-    if (!address) return;
+    if (!address || !client) return;
     setBusyId(app.id);
     try {
       // On-chain first: this is what actually flips Ngo.verified once the
@@ -57,8 +59,8 @@ export default function PlatformAdminPage() {
       // tx fails, we deliberately haven't touched the off-chain review
       // status yet — better an application stuck "pending" than one
       // marked "approved" while the NGO is still unverified on-chain.
-      const client = await getNgoRegistryClient(address, signTransaction);
       const tx = await client.approve_ngo({ ngo_owner: app.ownerAddress });
+      setEstimatedFee(formatEstimatedFee(tx.built?.fee));
       await tx.signAndSend();
 
       await reviewNgoApplication(address, signMessage, app.id, 'approve', reviewNotes[app.id]);
@@ -68,6 +70,7 @@ export default function PlatformAdminPage() {
       showToast('error', err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
       setBusyId(null);
+      setEstimatedFee(null);
     }
   }
 
@@ -97,16 +100,7 @@ export default function PlatformAdminPage() {
         </p>
 
         {!address && (
-          <div className="mt-8 rounded-lg border border-gray-200 p-6 text-center dark:border-gray-800">
-            <p className="text-gray-600 dark:text-gray-400">Connect the platform admin wallet.</p>
-            <button
-              type="button"
-              onClick={() => void connect()}
-              className="mt-4 rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
-            >
-              Connect Wallet
-            </button>
-          </div>
+          <ConnectWalletPrompt className="mt-8" message="Connect the platform admin wallet." />
         )}
 
         {address && loading && (
@@ -169,14 +163,17 @@ export default function PlatformAdminPage() {
                         className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
                       />
                     </label>
+                    {busyId === app.id && estimatedFee && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Fee {estimatedFee}</p>
+                    )}
                     <div className="flex gap-2">
                       <button
                         type="button"
                         onClick={() => void handleApprove(app)}
-                        disabled={busyId === app.id}
+                        disabled={busyId === app.id || !ready}
                         className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-gray-200"
                       >
-                        {busyId === app.id ? 'Working…' : 'Approve'}
+                        {busyId === app.id ? 'Working…' : ready ? 'Approve' : 'Preparing…'}
                       </button>
                       <button
                         type="button"

@@ -4,7 +4,8 @@ import { useState } from 'react';
 
 import { useToast } from '@/components/toast/ToastProvider';
 import { useWallet } from '@/components/wallet/WalletProvider';
-import { getDonationVaultClient } from '@/lib/donationVaultClient';
+import { useDonationVaultClient } from '@/lib/donationVaultClient';
+import { formatEstimatedFee } from '@/lib/format';
 
 export function WithdrawButton({
   streamOnChainId,
@@ -13,16 +14,18 @@ export function WithdrawButton({
   streamOnChainId: string;
   onWithdrawn: () => void;
 }) {
-  const { address, signTransaction } = useWallet();
+  const { address } = useWallet();
+  const { client, ready } = useDonationVaultClient();
   const { showToast } = useToast();
   const [busy, setBusy] = useState(false);
+  const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
 
   async function handleWithdraw(): Promise<void> {
-    if (!address) return;
+    if (!address || !client) return;
     setBusy(true);
     try {
-      const client = await getDonationVaultClient(address, signTransaction);
       const tx = await client.withdraw({ stream_id: BigInt(streamOnChainId) });
+      setEstimatedFee(formatEstimatedFee(tx.built?.fee));
       await tx.signAndSend();
       showToast('success', 'Withdrawal submitted — may take a few seconds to show below.');
       onWithdrawn();
@@ -33,17 +36,23 @@ export function WithdrawButton({
       showToast('error', err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
       setBusy(false);
+      setEstimatedFee(null);
     }
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => void handleWithdraw()}
-      disabled={busy}
-      className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-gray-200"
-    >
-      {busy ? 'Withdrawing…' : 'Withdraw'}
-    </button>
+    <span className="inline-flex items-center gap-2">
+      {busy && estimatedFee && (
+        <span className="text-xs text-gray-500 dark:text-gray-400">Fee {estimatedFee}</span>
+      )}
+      <button
+        type="button"
+        onClick={() => void handleWithdraw()}
+        disabled={busy || !ready}
+        className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+      >
+        {busy ? 'Withdrawing…' : ready ? 'Withdraw' : 'Loading…'}
+      </button>
+    </span>
   );
 }
