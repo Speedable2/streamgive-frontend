@@ -7,7 +7,8 @@ import { Header } from '@/components/layout/Header';
 import { useWallet } from '@/components/wallet/WalletProvider';
 import { ApiError, submitNgoApplication } from '@/lib/api';
 import { NGO_REGISTRY_ERRORS } from '@/lib/contractTypes';
-import { getNgoRegistryClient } from '@/lib/ngoRegistryClient';
+import { formatEstimatedFee } from '@/lib/format';
+import { useNgoRegistryClient } from '@/lib/ngoRegistryClient';
 
 type Status = 'idle' | 'registering' | 'submitting' | 'success' | 'error';
 
@@ -25,7 +26,8 @@ function isAlreadyRegistered(err: unknown): boolean {
 }
 
 export default function ApplyPage() {
-  const { address, connect, signTransaction } = useWallet();
+  const { address, connect } = useWallet();
+  const { client, ready } = useNgoRegistryClient();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -34,9 +36,11 @@ export default function ApplyPage() {
   const [country, setCountry] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
 
   const canSubmit =
     !!address &&
+    !!client &&
     name.trim().length > 0 &&
     description.trim().length > 0 &&
     contactEmail.trim().length > 0 &&
@@ -45,7 +49,7 @@ export default function ApplyPage() {
 
   async function handleSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
-    if (!canSubmit || !address) return;
+    if (!canSubmit || !address || !client) return;
 
     setErrorMessage(null);
 
@@ -57,8 +61,8 @@ export default function ApplyPage() {
     // one.
     setStatus('registering');
     try {
-      const client = await getNgoRegistryClient(address, signTransaction);
       const tx = await client.register({ owner: address, name: name.trim() });
+      setEstimatedFee(formatEstimatedFee(tx.built?.fee));
       await tx.signAndSend();
     } catch (err) {
       if (!isAlreadyRegistered(err)) {
@@ -71,6 +75,8 @@ export default function ApplyPage() {
         return;
       }
       // Already in the registry from an earlier attempt — carry on.
+    } finally {
+      setEstimatedFee(null);
     }
 
     setStatus('submitting');
@@ -198,6 +204,12 @@ export default function ApplyPage() {
               Applying as <span className="font-mono">{address}</span>
             </p>
 
+            {status === 'registering' && estimatedFee && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Estimated network fee: {estimatedFee}
+              </p>
+            )}
+
             {status === 'error' && errorMessage && (
               <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
             )}
@@ -211,7 +223,9 @@ export default function ApplyPage() {
                 ? 'Confirm in your wallet…'
                 : status === 'submitting'
                   ? 'Submitting…'
-                  : 'Submit application'}
+                  : !ready
+                    ? 'Preparing contract…'
+                    : 'Submit application'}
             </button>
           </form>
         )}
