@@ -18,6 +18,45 @@ import { formatAmount, formatRemainingDuration } from '@/lib/format';
 // pagination for /streams.
 const PAGE_SIZE = 10;
 
+function LiveBalance({ stream }: { stream: Stream }) {
+  const [estimatedBalance, setEstimatedBalance] = useState<bigint>(BigInt(stream.balance));
+
+  useEffect(() => {
+    if (stream.status !== 'ACTIVE') {
+      setEstimatedBalance(BigInt(stream.balance));
+      return;
+    }
+
+    const balance = BigInt(stream.balance);
+    const rate = BigInt(stream.rate);
+    const updatedAt = new Date(stream.updatedAt).getTime();
+
+    const tick = () => {
+      const now = Date.now();
+      const secondsSince = BigInt(Math.floor((now - updatedAt) / 1000));
+      let current = balance - rate * secondsSince;
+      if (current < 0n) {
+        current = 0n;
+      }
+      setEstimatedBalance(current);
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [stream.balance, stream.rate, stream.updatedAt, stream.status]);
+
+  if (stream.status !== 'ACTIVE') {
+    return <>{formatAmount(stream.balance)}</>;
+  }
+
+  return (
+    <span title="Estimated current balance based on stream rate" className="border-b border-dotted border-gray-400 cursor-help">
+      {formatAmount(estimatedBalance.toString())} (est)
+    </span>
+  );
+}
+
 function downloadDonationHistoryCsv(streams: Stream[]): void {
   const blob = new Blob([buildDonationHistoryCsv(streams)], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -144,43 +183,35 @@ export default function DashboardPage() {
             </div>
 
             <ul className="mt-8 space-y-4">
-              {streams.map((stream) => {
-                const remaining = formatRemainingDuration(stream.balance, stream.rate);
-                return (
-                  <li
-                    key={stream.id}
-                    className="rounded-lg border border-gray-200 p-6 dark:border-gray-800"
-                  >
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <Link
-                          href={`/ngos/${stream.ngo.id}`}
-                          className="font-semibold hover:underline"
-                        >
-                          {stream.ngo.name}
-                        </Link>
-                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                          {stream.status === 'ACTIVE' ? 'Active' : 'Cancelled'} · Balance{' '}
-                          {formatAmount(stream.balance)} · Withdrawn {formatAmount(stream.withdrawn)}
-                          {remaining ? ` · ${remaining}` : ''}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setDetailsStream(stream)}
-                          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
-                        >
-                          View details
-                        </button>
-                        {stream.status === 'ACTIVE' && (
-                          <StreamControls
-                            stream={stream}
-                            onChanged={refresh}
-                            onOptimisticUpdate={(patch) => applyOptimisticUpdate(stream.id, patch)}
-                          />
-                        )}
-                      </div>
+              {streams.map((stream) => (
+                <li
+                  key={stream.id}
+                  className="rounded-lg border border-gray-200 p-6 dark:border-gray-800"
+                >
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <Link
+                        href={`/ngos/${stream.ngo.id}`}
+                        className="font-semibold hover:underline"
+                      >
+                        {stream.ngo.name}
+                      </Link>
+                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                        {stream.status === 'ACTIVE' ? 'Active' : 'Cancelled'} · Balance{' '}
+                        <LiveBalance stream={stream} /> · Withdrawn {formatAmount(stream.withdrawn)}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDetailsStream(stream)}
+                        className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                      >
+                        View details
+                      </button>
+                      {stream.status === 'ACTIVE' && (
+                        <StreamControls stream={stream} onChanged={refresh} />
+                      )}
                     </div>
                   </li>
                 );
