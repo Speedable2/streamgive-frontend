@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
 import type { NgoProfile } from '@/lib/api';
 import { formatAmount } from '@/lib/format';
@@ -24,10 +25,55 @@ function sortNgos(ngos: NgoProfile[], sort: SortOption): NgoProfile[] {
   return copy.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
+// "page" in the URL counts how many PAGE_SIZE batches "Load more" has
+// revealed (1 = just the first page), not a byte/row offset.
+function parsePage(value: string | null): number {
+  const page = Number(value);
+  return Number.isInteger(page) && page > 0 ? page : 1;
+}
+
 export function NgoExplorer({ ngos }: { ngos: NgoProfile[] }) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') ?? '');
+  const [page, setPage] = useState(() => parsePage(searchParams.get('page')));
   const [sortBy, setSortBy] = useState<SortOption>('newest');
+
+  // Keeps state in sync with the URL for cases that don't go through the
+  // handlers below — landing on a shared link, or the back/forward button.
+  useEffect(() => {
+    setSearchQuery(searchParams.get('q') ?? '');
+    setPage(parsePage(searchParams.get('page')));
+  }, [searchParams]);
+
+  const visibleCount = page * PAGE_SIZE;
+
+  // Only q and page are synced (see acceptance criteria) — sort stays
+  // local. Replaced rather than pushed so search-as-you-type doesn't fill
+  // the back-button history with one entry per keystroke.
+  function syncParams(next: { q?: string; page?: number }): void {
+    const params = new URLSearchParams(searchParams.toString());
+
+    if (next.q !== undefined) {
+      if (next.q) {
+        params.set('q', next.q);
+      } else {
+        params.delete('q');
+      }
+    }
+    if (next.page !== undefined) {
+      if (next.page > 1) {
+        params.set('page', String(next.page));
+      } else {
+        params.delete('page');
+      }
+    }
+
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
 
   if (ngos.length === 0) {
     return <p className="mt-4 text-gray-600 dark:text-gray-400">No verified NGOs yet.</p>;
@@ -42,12 +88,20 @@ export function NgoExplorer({ ngos }: { ngos: NgoProfile[] }) {
 
   function handleSearchChange(value: string): void {
     setSearchQuery(value);
-    setVisibleCount(PAGE_SIZE);
+    setPage(1);
+    syncParams({ q: value, page: 1 });
   }
 
   function handleSortChange(value: SortOption): void {
     setSortBy(value);
-    setVisibleCount(PAGE_SIZE);
+    setPage(1);
+    syncParams({ page: 1 });
+  }
+
+  function handleLoadMore(): void {
+    const nextPage = page + 1;
+    setPage(nextPage);
+    syncParams({ page: nextPage });
   }
 
   return (
@@ -84,7 +138,52 @@ export function NgoExplorer({ ngos }: { ngos: NgoProfile[] }) {
       ) : (
         <ul className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {visibleNgos.map((ngo) => (
-            <li key={ngo.id}>
+            <li
+              key={ngo.id}
+              className="rounded-lg border border-gray-200 p-6 dark:border-gray-800"
+            >
+              <div className="flex items-center gap-2">
+                <h2 className="font-semibold">{ngo.name}</h2>
+                {ngo.verified && (
+                  <span
+                    role="img"
+                    aria-label="Verified"
+                    title="Verified"
+                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green-600 text-white dark:bg-green-500"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      className="h-2.5 w-2.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={3}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M5 13l4 4L19 7" />
+                    </svg>
+                  </span>
+                )}
+              </div>
+
+              <dl className="mt-4 grid grid-cols-3 gap-3">
+                <div>
+                  <dt className="text-xs text-gray-500 dark:text-gray-400">Committed</dt>
+                  <dd className="text-sm font-semibold">
+                    {formatAmount(ngo.stats.totalCommitted)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500 dark:text-gray-400">Streams</dt>
+                  <dd className="text-sm font-semibold">{ngo.stats.activeStreamCount}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500 dark:text-gray-400">Donors</dt>
+                  <dd className="text-sm font-semibold">{ngo.stats.donorCount}</dd>
+                </div>
+              </dl>
+
               <Link
                 href={`/ngos/${ngo.id}`}
                 className="block rounded-lg border border-gray-200 p-6 hover:bg-gray-50 focus-visible:border-gray-400 focus-visible:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 dark:border-gray-800 dark:hover:bg-gray-900 dark:focus-visible:border-gray-600 dark:focus-visible:bg-gray-900 dark:focus-visible:ring-white"
@@ -128,7 +227,7 @@ export function NgoExplorer({ ngos }: { ngos: NgoProfile[] }) {
         <div className="mt-8 flex justify-center">
           <button
             type="button"
-            onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+            onClick={handleLoadMore}
             className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
           >
             Load more

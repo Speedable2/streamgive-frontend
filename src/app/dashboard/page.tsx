@@ -13,6 +13,11 @@ import { getStreams, type Stream } from '@/lib/api';
 import { buildDonationHistoryCsv } from '@/lib/csv';
 import { formatAmount, formatRemainingDuration } from '@/lib/format';
 
+// Client-side pagination over the already-fetched list — same interim
+// approach as NgoExplorer, until the backend exposes real limit/offset
+// pagination for /streams.
+const PAGE_SIZE = 10;
+
 function downloadDonationHistoryCsv(streams: Stream[]): void {
   const blob = new Blob([buildDonationHistoryCsv(streams)], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -29,6 +34,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [detailsStream, setDetailsStream] = useState<Stream | null>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   // Drop any streams fetched under a previous address as soon as `address`
   // changes, during render rather than in an effect, so a stale list from
@@ -73,6 +79,8 @@ export default function DashboardPage() {
     0n,
   );
   const activeCount = streams.filter((s) => s.status === 'ACTIVE').length;
+  const visibleStreams = streams.slice(0, visibleCount);
+  const hasMore = visibleCount < streams.length;
 
   return (
     <>
@@ -109,7 +117,11 @@ export default function DashboardPage() {
         {address && !loading && !loadError && streams.length > 0 && (
           <>
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <dl className="grid grid-cols-2 gap-6 sm:w-fit sm:grid-cols-2">
+              <dl className="grid grid-cols-3 gap-6 sm:w-fit sm:grid-cols-3">
+                <div>
+                  <dt className="text-sm text-gray-500 dark:text-gray-400">Total streams</dt>
+                  <dd className="text-lg font-semibold">{streams.length}</dd>
+                </div>
                 <div>
                   <dt className="text-sm text-gray-500 dark:text-gray-400">Total committed</dt>
                   <dd className="text-lg font-semibold">
@@ -131,74 +143,61 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            <div className="mt-8 overflow-x-auto">
-              <table
-                aria-label="Your donation streams"
-                className="w-full min-w-[900px] border-separate border-spacing-y-3 text-left"
-              >
-                <thead>
-                  <tr className="text-sm text-gray-500 dark:text-gray-400">
-                    <th scope="col" className="px-4 py-2 font-medium">NGO</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Rate</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Balance</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Withdrawn</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Status</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Remaining</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {streams.map((stream) => {
-                    const remaining = formatRemainingDuration(stream.balance, stream.rate);
-                    return (
-                      <tr key={stream.id}>
-                        <td className="rounded-l-lg border-y border-l border-gray-200 px-4 py-4 dark:border-gray-800">
-                          <Link
-                            href={`/ngos/${stream.ngo.id}`}
-                            className="font-semibold hover:underline"
-                          >
-                            {stream.ngo.name}
-                          </Link>
-                        </td>
-                        <td className="border-y border-gray-200 px-4 py-4 dark:border-gray-800">
-                          {formatAmount(stream.rate)} / second
-                        </td>
-                        <td className="border-y border-gray-200 px-4 py-4 dark:border-gray-800">
-                          {formatAmount(stream.balance)}
-                        </td>
-                        <td className="border-y border-gray-200 px-4 py-4 dark:border-gray-800">
-                          {formatAmount(stream.withdrawn)}
-                        </td>
-                        <td className="border-y border-gray-200 px-4 py-4 dark:border-gray-800">
-                          {stream.status === 'ACTIVE' ? 'Active' : 'Cancelled'}
-                        </td>
-                        <td className="border-y border-gray-200 px-4 py-4 dark:border-gray-800">
-                          {remaining || '—'}
-                        </td>
-                        <td className="rounded-r-lg border-y border-r border-gray-200 px-4 py-4 dark:border-gray-800">
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setDetailsStream(stream)}
-                              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
-                            >
-                              View details
-                            </button>
-                            {stream.status === 'ACTIVE' && (
-                              <StreamControls
-                                stream={stream}
-                                onChanged={refresh}
-                                onOptimisticUpdate={(patch) => applyOptimisticUpdate(stream.id, patch)}
-                              />
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <ul className="mt-8 space-y-4">
+              {streams.map((stream) => {
+                const remaining = formatRemainingDuration(stream.balance, stream.rate);
+                return (
+                  <li
+                    key={stream.id}
+                    className="rounded-lg border border-gray-200 p-6 dark:border-gray-800"
+                  >
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <Link
+                          href={`/ngos/${stream.ngo.id}`}
+                          className="font-semibold hover:underline"
+                        >
+                          {stream.ngo.name}
+                        </Link>
+                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                          {stream.status === 'ACTIVE' ? 'Active' : 'Cancelled'} · Balance{' '}
+                          {formatAmount(stream.balance)} · Withdrawn {formatAmount(stream.withdrawn)}
+                          {remaining ? ` · ${remaining}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDetailsStream(stream)}
+                          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                        >
+                          View details
+                        </button>
+                        {stream.status === 'ACTIVE' && (
+                          <StreamControls
+                            stream={stream}
+                            onChanged={refresh}
+                            onOptimisticUpdate={(patch) => applyOptimisticUpdate(stream.id, patch)}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {hasMore && (
+              <div className="mt-8 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                  className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                >
+                  Load more
+                </button>
+              </div>
+            )}
           </>
         )}
       </main>

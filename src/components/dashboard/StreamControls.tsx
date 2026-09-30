@@ -5,8 +5,8 @@ import { useState } from 'react';
 import { useToast } from '@/components/toast/ToastProvider';
 import { useWallet } from '@/components/wallet/WalletProvider';
 import type { Stream } from '@/lib/api';
-import { getDonationVaultClient } from '@/lib/donationVaultClient';
-import { parseAmount, TOKEN_DECIMALS } from '@/lib/format';
+import { useDonationVaultClient } from '@/lib/donationVaultClient';
+import { formatEstimatedFee, parseAmount, TOKEN_DECIMALS } from '@/lib/format';
 
 /**
  * Computes the per-second token rate for a stream modification.
@@ -64,20 +64,21 @@ export function StreamControls({
   const [pending, setPending] = useState<PendingAction>(null);
   const [durationSeconds, setDurationSeconds] = useState(DURATIONS[1].seconds);
   const [topUpAmount, setTopUpAmount] = useState('');
+  const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
 
   const topUpAmountRaw = parseAmount(topUpAmount);
 
   async function handleTopUp(): Promise<void> {
-    if (!address || topUpAmountRaw === null) return;
+    if (!address || !client || topUpAmountRaw === null) return;
 
     setMode('idle');
     setPending('topUp');
     try {
-      const client = await getDonationVaultClient(address, signTransaction);
       const tx = await client.top_up({
         stream_id: BigInt(stream.onChainId),
         amount: topUpAmountRaw,
       });
+      setEstimatedFee(formatEstimatedFee(tx.built?.fee));
       await tx.signAndSend();
       showToast('success', `Stream topped up — ${INDEXING_LAG_NOTE}.`);
       setTopUpAmount('');
@@ -87,16 +88,17 @@ export function StreamControls({
       showToast('error', err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
       setPending(null);
+      setEstimatedFee(null);
     }
   }
 
   async function handleCancel(): Promise<void> {
-    if (!address) return;
+    if (!address || !client) return;
     setMode('idle');
     setPending('cancel');
     try {
-      const client = await getDonationVaultClient(address, signTransaction);
       const tx = await client.cancel_stream({ stream_id: BigInt(stream.onChainId) });
+      setEstimatedFee(formatEstimatedFee(tx.built?.fee));
       await tx.signAndSend();
       showToast('success', `Stream cancelled — ${INDEXING_LAG_NOTE}.`);
       onOptimisticUpdate?.({ status: 'CANCELLED' });
@@ -105,11 +107,12 @@ export function StreamControls({
       showToast('error', err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
       setPending(null);
+      setEstimatedFee(null);
     }
   }
 
   async function handleModifyRate(): Promise<void> {
-    if (!address) return;
+    if (!address || !client) return;
 
     // Re-rate the stream's *remaining* balance over a newly chosen
     // duration — asking a donor for a raw per-second rate makes no more
@@ -123,11 +126,11 @@ export function StreamControls({
     setMode('idle');
     setPending('modifyRate');
     try {
-      const client = await getDonationVaultClient(address, signTransaction);
       const tx = await client.modify_rate({
         stream_id: BigInt(stream.onChainId),
         new_rate: newRate,
       });
+      setEstimatedFee(formatEstimatedFee(tx.built?.fee));
       await tx.signAndSend();
       showToast('success', `Rate updated — ${INDEXING_LAG_NOTE}.`);
       onChanged();
@@ -135,6 +138,7 @@ export function StreamControls({
       showToast('error', err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
       setPending(null);
+      setEstimatedFee(null);
     }
   }
 
@@ -238,20 +242,19 @@ export function StreamControls({
   }
 
   return (
-    <div className="flex flex-wrap justify-end gap-2">
-      <span role="status" aria-live="polite" className="sr-only">
-        {pending === 'topUp'
-          ? 'Topping up…'
-          : pending === 'modifyRate'
-            ? 'Updating…'
-            : pending === 'cancel'
-              ? 'Cancelling…'
-              : ''}
-      </span>
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {!ready && (
+        <span role="status" className="text-xs text-gray-400 dark:text-gray-500">
+          Preparing contract…
+        </span>
+      )}
+      {pending !== null && estimatedFee && (
+        <span className="text-xs text-gray-500 dark:text-gray-400">Fee {estimatedFee}</span>
+      )}
       <button
         type="button"
         onClick={() => setMode('toppingUp')}
-        disabled={pending !== null}
+        disabled={pending !== null || !ready}
         className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
       >
         {pending === 'topUp' ? 'Topping up…' : 'Top up'}
@@ -259,7 +262,7 @@ export function StreamControls({
       <button
         type="button"
         onClick={() => setMode('modifying')}
-        disabled={pending !== null}
+        disabled={pending !== null || !ready}
         className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
       >
         {pending === 'modifyRate' ? 'Updating…' : 'Modify rate'}
@@ -267,7 +270,7 @@ export function StreamControls({
       <button
         type="button"
         onClick={() => setMode('confirmingCancel')}
-        disabled={pending !== null}
+        disabled={pending !== null || !ready}
         className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
       >
         {pending === 'cancel' ? 'Cancelling…' : 'Cancel'}
