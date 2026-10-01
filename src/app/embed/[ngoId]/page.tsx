@@ -12,7 +12,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { ngoId } = await params;
   const ngo = await getNgo(ngoId).catch(() => null);
   return {
-    title: ngo ? `Give to ${ngo.name}` : 'NGO not found',
+    title: ngo ? `Donate to ${ngo.name}` : 'NGO not found',
     robots: { index: false, follow: false },
   };
 }

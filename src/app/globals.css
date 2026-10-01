@@ -21,3 +21,27 @@ html.dark {
 html.light {
   color-scheme: light;
 }
+
+/* RouteProgressBar (issue #166): sweeps across on mount and stays there —
+ * there's no real completion percentage to animate toward, since the App
+ * Router gives no progress signal, only a done/not-done one. */
+@keyframes route-progress-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0%);
+  }
+}
+
+.route-progress-bar {
+  animation: route-progress-sweep 1.2s ease-out forwards;
+}
+
+/* WCAG 2.3.3 (reduced motion): the bar still appears (it's a real loading
+ * signal, not decorative), it just doesn't sweep — full width immediately. */
+@media (prefers-reduced-motion: reduce) {
+  .route-progress-bar {
+    animation: none;
+  }
+}

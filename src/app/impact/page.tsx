@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
@@ -24,25 +24,51 @@ export default function ImpactPage() {
   const [impact, setImpact] = useState<PlatformImpact | null>(null);
   const [loadError, setLoadError] = useState(false);
 
-  const refresh = useCallback(() => {
-    loadPlatformImpact()
-      .then((next) => {
-        setImpact(next);
-        setLoadError(false);
-      })
-      .catch(() => setLoadError(true));
-  }, []);
-
   useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [refresh]);
+    // Guards every setState below against a tick that is still in flight
+    // (or fires) after the component has unmounted (issue #157): the
+    // interval itself is cleared on cleanup, but a request already in
+    // flight at that moment would otherwise resolve or reject later and
+    // call setImpact/setLoadError on an unmounted component, which React
+    // warns about and which abandons the fetch's own underlying resources.
+    let cancelled = false;
+
+    function refresh() {
+      const controller = new AbortController();
+      loadPlatformImpact(controller.signal)
+        .then((next) => {
+          if (!cancelled) {
+            setImpact(next);
+            setLoadError(false);
+          }
+        })
+        .catch((err: unknown) => {
+          // An aborted fetch (component unmounted mid-request) is not a
+          // real load failure -- the AbortError is expected and must not
+          // flip the error UI on, which a plain catch-all would do.
+          if (!cancelled && !(err instanceof DOMException && err.name === 'AbortError')) {
+            setLoadError(true);
+          }
+        });
+      return controller;
+    }
+
+    let activeController = refresh();
+    const interval = setInterval(() => {
+      activeController = refresh();
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      activeController.abort();
+    };
+  }, []);
 
   return (
     <>
       <Header />
-      <main className="px-6 py-16 sm:px-12">
+      <main id="main" className="px-6 py-16 sm:px-12">
         <h1 className="text-2xl font-bold">Platform impact</h1>
         <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
           Updates automatically every {POLL_INTERVAL_MS / 1000} seconds.
@@ -63,9 +89,15 @@ export default function ImpactPage() {
         )}
 
         {!loadError && !impact && (
-          <p role="status" className="mt-8 text-gray-500 dark:text-gray-400">
-            Loading…
-          </p>
+          <div role="status" className="mt-8 grid animate-pulse grid-cols-2 gap-6 sm:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i}>
+                <div className="h-5 w-24 rounded bg-gray-200 dark:bg-gray-800" />
+                <div className="mt-2 h-8 w-32 rounded bg-gray-200 dark:bg-gray-800" />
+              </div>
+            ))}
+            <span className="sr-only">Loading…</span>
+          </div>
         )}
 
         {impact && (

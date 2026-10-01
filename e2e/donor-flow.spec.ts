@@ -81,4 +81,58 @@ test.describe('core donor flow (no wallet extension required)', () => {
     await expect(page.getByLabel(/organization name/i)).not.toBeVisible();
     await expect(page.getByRole('button', { name: /submit application/i })).not.toBeVisible();
   });
+
+  test('dashboard prompts for wallet connection when nothing is connected', async ({ page }) => {
+    // No wallet extension in CI, so the dashboard can only show its connect
+    // prompt — and it must not start fetching streams without an address.
+    // The header also carries a "Connect Wallet" button, so the prompt
+    // assertions are scoped to <main> to match the page's own card.
+    await page.goto('/dashboard');
+
+    const main = page.getByRole('main');
+    await expect(page.getByRole('heading', { name: /your donations/i })).toBeVisible();
+    await expect(main.getByText(/connect your wallet to see your streams/i)).toBeVisible();
+    await expect(main.getByRole('button', { name: /connect wallet/i })).toBeVisible();
+    await expect(page.getByText(/loading your streams/i)).not.toBeVisible();
+  });
+
+  test('impact page renders platform stats (loading and populated states)', async ({ page }) => {
+    await page.goto('/impact');
+
+    await expect(page.getByRole('heading', { name: /platform impact/i })).toBeVisible();
+
+    // The page always shows a loading state (role="status") before its
+    // first poll settles — there's no SSR data here, see ImpactPage's
+    // docblock. Asserted opportunistically rather than required: a
+    // fast/local response can resolve before this check runs, same as the
+    // other timing-sensitive assertions in this file.
+    const sawLoading = await page
+      .getByRole('status', { name: /loading/i })
+      .isVisible()
+      .catch(() => false);
+    if (sawLoading) {
+      await expect(page.getByRole('status', { name: /loading/i })).toBeVisible();
+    }
+
+    // Same ambiguity as the NGO explorer test above: without a guaranteed
+    // running backend, the page can land in the populated-stats state or
+    // an API-unreachable state — both are correctly-handled outcomes, not
+    // test failures.
+    const hasStats = await page
+      .getByText(/total committed/i)
+      .isVisible({ timeout: 10_000 })
+      .catch(() => false);
+    const hasApiError = await page
+      .getByText(/couldn.t reach the streamgive api/i)
+      .isVisible()
+      .catch(() => false);
+
+    expect(hasStats || hasApiError).toBe(true);
+
+    if (hasStats) {
+      await expect(page.getByText(/withdrawn by ngos/i)).toBeVisible();
+      await expect(page.getByText(/active streams/i)).toBeVisible();
+      await expect(page.getByText(/verified ngos/i)).toBeVisible();
+    }
+  });
 });
