@@ -2,13 +2,21 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useDonationVaultClient } from '@/lib/donationVaultClient';
+
 import { CreateStreamForm } from './CreateStreamForm';
 
 const DONOR_ADDRESS = 'G' + 'D'.repeat(55);
 const NGO_ADDRESS = 'G' + 'N'.repeat(55);
+const NGO_ID = 'ngo-1';
 const NATIVE_TOKEN_ADDRESS = 'CNATIVEFAKE';
 
 const mockSignTransaction = vi.fn();
+const mockPush = vi.fn();
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
 
 vi.mock('@/components/wallet/WalletProvider', () => ({
   useWallet: () => ({
@@ -28,14 +36,27 @@ vi.mock('@/lib/stellar', () => ({
 const mockCreateStream = vi.fn();
 
 vi.mock('@/lib/donationVaultClient', () => ({
-  getDonationVaultClient: vi.fn(async () => ({
-    create_stream: mockCreateStream,
-  })),
+  useDonationVaultClient: vi.fn(),
 }));
 
 describe('CreateStreamForm', () => {
   beforeEach(() => {
     mockCreateStream.mockReset();
+    mockPush.mockReset();
+    vi.mocked(useDonationVaultClient).mockReturnValue({
+      client: { create_stream: mockCreateStream } as never,
+      ready: true,
+    });
+  });
+
+  it('disables submit and shows a loading label while the contract client is not ready', async () => {
+    vi.mocked(useDonationVaultClient).mockReturnValue({ client: null, ready: false });
+
+    const user = userEvent.setup();
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+    await user.type(screen.getByPlaceholderText('100'), '100');
+
+    expect(screen.getByRole('button', { name: /preparing contract/i })).toBeDisabled();
   });
 
   it('disables submit until a valid amount is entered', async () => {
@@ -113,5 +134,39 @@ describe('CreateStreamForm', () => {
       deposit: 1_000_000_000n,
       rate: 1_000_000_000n / (30n * 24n * 60n * 60n),
     });
+    // No ngoId was passed, so this stays on the inline success card rather
+    // than navigating away — that's the embed widget's fallback behavior.
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('navigates to the donate-success page when ngoId is provided', async () => {
+    mockCreateStream.mockResolvedValue({
+      signAndSend: vi.fn().mockResolvedValue({ result: 42n }),
+    });
+
+    const user = userEvent.setup();
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} ngoId={NGO_ID} />);
+
+    await user.type(screen.getByPlaceholderText('100'), '100');
+    await user.click(screen.getByRole('button', { name: /review & sign/i }));
+
+    await screen.findByText(/stream started/i);
+    expect(mockPush).toHaveBeenCalledWith(`/ngos/${NGO_ID}/donate/success?streamId=42`);
+  });
+
+  it('shows the estimated network fee once the transaction is assembled', async () => {
+    mockCreateStream.mockResolvedValue({
+      built: { fee: '1000000' },
+      signAndSend: () => new Promise(() => {}),
+    });
+
+    const user = userEvent.setup();
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+
+    await user.type(screen.getByPlaceholderText('100'), '100');
+    await user.click(screen.getByRole('button', { name: /review & sign/i }));
+
+    // 1 000 000 stroops = 0.1 XLM.
+    expect(await screen.findByText(/estimated network fee: ≈ 0.1 xlm/i)).toBeInTheDocument();
   });
 });

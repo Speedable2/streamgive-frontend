@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
@@ -36,7 +37,14 @@ export default async function NgosPage() {
           </p>
         )}
 
-        {!loadError && <NgoExplorer ngos={ngos} />}
+        {!loadError && (
+          // NgoExplorer reads useSearchParams() to restore/sync filters in
+          // the URL, which requires a Suspense boundary — otherwise it
+          // forces the whole route into client-side rendering.
+          <Suspense fallback={null}>
+            <NgoExplorer ngos={ngos} />
+          </Suspense>
+        )}
       </main>
       <Footer />
     </>
