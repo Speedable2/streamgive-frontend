@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
+import { ConnectWalletPrompt } from '@/components/common/ConnectWalletPrompt';
 import { StreamControls } from '@/components/dashboard/StreamControls';
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
@@ -10,7 +11,51 @@ import { StreamDetailsModal } from '@/components/streams/StreamDetailsModal';
 import { useWallet } from '@/components/wallet/WalletProvider';
 import { getStreams, type Stream } from '@/lib/api';
 import { buildDonationHistoryCsv } from '@/lib/csv';
-import { formatAmount } from '@/lib/format';
+import { formatAmount, formatRemainingDuration } from '@/lib/format';
+
+// Client-side pagination over the already-fetched list — same interim
+// approach as NgoExplorer, until the backend exposes real limit/offset
+// pagination for /streams.
+const PAGE_SIZE = 10;
+
+function LiveBalance({ stream }: { stream: Stream }) {
+  const [estimatedBalance, setEstimatedBalance] = useState<bigint>(BigInt(stream.balance));
+
+  useEffect(() => {
+    if (stream.status !== 'ACTIVE') {
+      setEstimatedBalance(BigInt(stream.balance));
+      return;
+    }
+
+    const balance = BigInt(stream.balance);
+    const rate = BigInt(stream.rate);
+    const updatedAt = new Date(stream.updatedAt).getTime();
+
+    const tick = () => {
+      const now = Date.now();
+      const secondsSince = BigInt(Math.floor((now - updatedAt) / 1000));
+      let current = balance - rate * secondsSince;
+      if (current < 0n) {
+        current = 0n;
+      }
+      setEstimatedBalance(current);
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [stream.balance, stream.rate, stream.updatedAt, stream.status]);
+
+  if (stream.status !== 'ACTIVE') {
+    return <>{formatAmount(stream.balance)}</>;
+  }
+
+  return (
+    <span title="Estimated current balance based on stream rate" className="border-b border-dotted border-gray-400 cursor-help">
+      {formatAmount(estimatedBalance.toString())} (est)
+    </span>
+  );
+}
 
 function downloadDonationHistoryCsv(streams: Stream[]): void {
   const blob = new Blob([buildDonationHistoryCsv(streams)], { type: 'text/csv;charset=utf-8;' });
@@ -23,22 +68,45 @@ function downloadDonationHistoryCsv(streams: Stream[]): void {
 }
 
 export default function DashboardPage() {
-  const { address, connect } = useWallet();
+  const { address } = useWallet();
   const [streams, setStreams] = useState<Stream[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [detailsStream, setDetailsStream] = useState<Stream | null>(null);
+  const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'CANCELLED'>('ALL');
+  const [filterInitialized, setFilterInitialized] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // Drop any streams fetched under a previous address as soon as `address`
+  // changes, during render rather than in an effect, so a stale list from
+  // the old wallet is never painted (even briefly) under the new one.
+  const [prevAddress, setPrevAddress] = useState(address);
+  if (address !== prevAddress) {
+    setPrevAddress(address);
+    setStreams([]);
+    setLoadError(false);
+  }
 
   const refresh = useCallback(() => {
     if (!address) {
       setStreams([]);
+      setFilterInitialized(false);
       return;
     }
 
     setLoading(true);
     setLoadError(false);
     getStreams({ donor: address })
-      .then(setStreams)
+      .then((data) => {
+        setStreams(data);
+        setFilterInitialized((prev) => {
+          if (!prev) {
+            setFilter(data.some((s) => s.status === 'ACTIVE') ? 'ACTIVE' : 'ALL');
+            return true;
+          }
+          return prev;
+        });
+      })
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, [address]);
@@ -53,11 +121,24 @@ export default function DashboardPage() {
     refresh();
   }, [refresh]);
 
+  const applyOptimisticUpdate = useCallback((streamId: string, patch: Partial<Stream>) => {
+    setStreams((prev) => prev.map((s) => (s.id === streamId ? { ...s, ...patch } : s)));
+  }, []);
+
   const totalCommitted = streams.reduce(
     (sum, s) => sum + BigInt(s.balance) + BigInt(s.withdrawn),
     0n,
   );
   const activeCount = streams.filter((s) => s.status === 'ACTIVE').length;
+  const visibleStreams = streams.slice(0, visibleCount);
+  const hasMore = visibleCount < streams.length;
+
+  const filteredStreams = streams.filter((s) => {
+    if (filter === 'ALL') return true;
+    if (filter === 'ACTIVE') return s.status === 'ACTIVE';
+    if (filter === 'CANCELLED') return s.status === 'CANCELLED';
+    return true;
+  });
 
   return (
     <>
@@ -66,16 +147,7 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold">Your donations</h1>
 
         {!address && (
-          <div className="mt-8 rounded-lg border border-gray-200 p-6 text-center dark:border-gray-800">
-            <p className="text-gray-600 dark:text-gray-400">Connect your wallet to see your streams.</p>
-            <button
-              type="button"
-              onClick={() => void connect()}
-              className="mt-4 rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
-            >
-              Connect Wallet
-            </button>
-          </div>
+          <ConnectWalletPrompt className="mt-8" message="Connect your wallet to see your streams." />
         )}
 
         {address && loading && (
@@ -103,7 +175,11 @@ export default function DashboardPage() {
         {address && !loading && !loadError && streams.length > 0 && (
           <>
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <dl className="grid grid-cols-2 gap-6 sm:w-fit sm:grid-cols-2">
+              <dl className="grid grid-cols-3 gap-6 sm:w-fit sm:grid-cols-3">
+                <div>
+                  <dt className="text-sm text-gray-500 dark:text-gray-400">Total streams</dt>
+                  <dd className="text-lg font-semibold">{streams.length}</dd>
+                </div>
                 <div>
                   <dt className="text-sm text-gray-500 dark:text-gray-400">Total committed</dt>
                   <dd className="text-lg font-semibold">
@@ -125,12 +201,41 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            <ul className="mt-8 space-y-4">
-              {streams.map((stream) => (
-                <li
-                  key={stream.id}
-                  className="rounded-lg border border-gray-200 p-6 dark:border-gray-800"
-                >
+            <div className="mt-8 flex gap-4 border-b border-gray-200 dark:border-gray-800">
+              <button
+                type="button"
+                onClick={() => setFilter('ALL')}
+                className={`pb-2 text-sm font-medium ${filter === 'ALL' ? 'border-b-2 border-black text-black dark:border-white dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilter('ACTIVE')}
+                className={`pb-2 text-sm font-medium ${filter === 'ACTIVE' ? 'border-b-2 border-black text-black dark:border-white dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}
+              >
+                Active
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilter('CANCELLED')}
+                className={`pb-2 text-sm font-medium ${filter === 'CANCELLED' ? 'border-b-2 border-black text-black dark:border-white dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}
+              >
+                Cancelled
+              </button>
+            </div>
+
+            {filteredStreams.length === 0 ? (
+              <p className="mt-8 text-gray-600 dark:text-gray-400">
+                No {filter.toLowerCase()} streams found.
+              </p>
+            ) : (
+              <ul className="mt-6 space-y-4">
+                {filteredStreams.map((stream) => (
+                  <li
+                    key={stream.id}
+                    className="rounded-lg border border-gray-200 p-6 dark:border-gray-800"
+                  >
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <Link
@@ -141,7 +246,7 @@ export default function DashboardPage() {
                       </Link>
                       <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                         {stream.status === 'ACTIVE' ? 'Active' : 'Cancelled'} · Balance{' '}
-                        {formatAmount(stream.balance)} · Withdrawn {formatAmount(stream.withdrawn)}
+                        <LiveBalance stream={stream} /> · Withdrawn {formatAmount(stream.withdrawn)}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -156,10 +261,22 @@ export default function DashboardPage() {
                         <StreamControls stream={stream} onChanged={refresh} />
                       )}
                     </div>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
+
+            {hasMore && (
+              <div className="mt-8 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                  className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                >
+                  Load more
+                </button>
+              </div>
+            )}
           </>
         )}
       </main>

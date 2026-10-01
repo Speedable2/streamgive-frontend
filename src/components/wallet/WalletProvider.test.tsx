@@ -9,12 +9,19 @@ const TEST_ADDRESS = 'G' + 'A'.repeat(55);
 
 const mockGetAddress = vi.fn();
 const mockAuthModal = vi.fn();
+// Defaults to the app's own configured network, i.e. "no mismatch" — tests
+// that care about a mismatch override this per-test.
+const mockGetNetwork = vi.fn().mockResolvedValue({
+  network: 'TESTNET',
+  networkPassphrase: 'Test SDF Network ; September 2015',
+});
 
 vi.mock('@creit.tech/stellar-wallets-kit/sdk', () => ({
   StellarWalletsKit: {
     init: vi.fn(),
     getAddress: (...args: unknown[]) => mockGetAddress(...args),
     authModal: (...args: unknown[]) => mockAuthModal(...args),
+    getNetwork: (...args: unknown[]) => mockGetNetwork(...args),
     signTransaction: vi.fn(),
     signMessage: vi.fn(),
   },
