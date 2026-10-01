@@ -18,13 +18,17 @@ export type PlatformImpact = {
  * NGOs would be counted twice, and per-NGO stats have carried no way to
  * dedupe that from the frontend.
  *
+ * @param signal - Optional abort signal, e.g. from a polling effect's
+ * cleanup on unmount, so an in-flight fetch for a page the viewer has
+ * already left stops rather than completing and calling a now-stale
+ * setState.
  * @throws {Error} when the StreamGive API is unreachable — callers decide
  * how to degrade (the impact page shows an error, the landing page hides
  * the stats strip).
  */
-export async function loadPlatformImpact(): Promise<PlatformImpact> {
-  const ngos = await getNgos();
-  const profiles = await Promise.all(ngos.map((ngo) => getNgo(ngo.id)));
+export async function loadPlatformImpact(signal?: AbortSignal): Promise<PlatformImpact> {
+  const ngos = await getNgos(signal);
+  const profiles = await Promise.all(ngos.map((ngo) => getNgo(ngo.id, signal)));
 
   let totalCommitted = 0n;
   let totalWithdrawn = 0n;
