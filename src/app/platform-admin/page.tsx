@@ -87,7 +87,7 @@ export default function PlatformAdminPage() {
 
   async function handleReject(app: NgoApplication): Promise<void> {
     if (!address) return;
-    setBusyId(app.id);
+    setBusy({ id: app.id, action: 'reject' });
     try {
       await reviewNgoApplication(address, signMessage, app.id, 'reject', reviewNotes[app.id]);
       showToast('info', `${app.name} rejected.`);
