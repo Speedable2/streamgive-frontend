@@ -15,6 +15,7 @@ import { useNgoRegistryClient } from '@/lib/ngoRegistryClient';
 
 export default function PlatformAdminPage() {
   const { address, signMessage, signTransaction } = useWallet();
+  const { client, ready } = useNgoRegistryClient();
   const { showToast } = useToast();
   const [applications, setApplications] = useState<NgoApplication[]>([]);
   const [loading, setLoading] = useState(false);
