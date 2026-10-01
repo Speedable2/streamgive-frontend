@@ -39,6 +39,8 @@ export type NgoRegistryMethods = {
   register(args: { owner: string; name: string }): Promise<AssembledTransaction<null>>;
 
   approve_ngo(args: { ngo_owner: string }): Promise<AssembledTransaction<null>>;
+
+  revoke_ngo(args: { ngo_owner: string }): Promise<AssembledTransaction<null>>;
 };
 
 /** Contract error codes from ngo-registry's Error enum, for the cases worth

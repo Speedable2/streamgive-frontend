@@ -7,6 +7,17 @@ import { Header } from '@/components/layout/Header';
 import { formatAmount } from '@/lib/format';
 import { loadPlatformImpact, type PlatformImpact } from '@/lib/impact';
 
+// Polling architecture (acknowledged tech debt — see README's Troubleshooting
+// section for the user-facing symptom):
+// There's no push channel (websocket/SSE) from the backend, so "live" impact
+// numbers are simulated by re-fetching on a timer. Each tick calls
+// `loadPlatformImpact()`, which itself does one N+1 fetch (list every NGO,
+// then fetch each NGO's profile individually and sum client-side — see
+// src/lib/impact.ts) because there's no platform-wide aggregate endpoint.
+// That means every 20s this page issues 1 + N requests, where N is the
+// verified NGO count. Fine while N is small; the interval and/or the N+1
+// fetch are the first things to revisit if the NGO list grows or the
+// backend gains a real aggregate/streaming endpoint.
 const POLL_INTERVAL_MS = 20_000;
 
 export default function ImpactPage() {
@@ -23,37 +34,9 @@ export default function ImpactPage() {
   }, []);
 
   useEffect(() => {
-    let interval: ReturnType<typeof window.setInterval> | undefined;
-
-    const startPolling = () => {
-      if (interval) clearInterval(interval);
-      refresh();
-      interval = window.setInterval(refresh, POLL_INTERVAL_MS);
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        if (interval) {
-          clearInterval(interval);
-          interval = undefined;
-        }
-        return;
-      }
-
-      startPolling();
-    };
-
-    // Simulates "live" via polling — there's no websocket/SSE push from
-    // the backend to actually stream updates.
-    if (document.visibilityState === 'visible') {
-      startPolling();
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      if (interval) clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
+    refresh();
+    const interval = setInterval(refresh, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
   }, [refresh]);
 
   return (
@@ -80,9 +63,15 @@ export default function ImpactPage() {
         )}
 
         {!loadError && !impact && (
-          <p role="status" className="mt-8 text-gray-500 dark:text-gray-400">
-            Loading…
-          </p>
+          <div role="status" className="mt-8 grid animate-pulse grid-cols-2 gap-6 sm:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i}>
+                <div className="h-5 w-24 rounded bg-gray-200 dark:bg-gray-800" />
+                <div className="mt-2 h-8 w-32 rounded bg-gray-200 dark:bg-gray-800" />
+              </div>
+            ))}
+            <span className="sr-only">Loading…</span>
+          </div>
         )}
 
         {impact && (

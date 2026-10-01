@@ -39,6 +39,24 @@ test.describe('core donor flow (no wallet extension required)', () => {
     expect(hasCards || hasEmptyState || hasApiError).toBe(true);
   });
 
+  test('unknown NGO id renders the custom 404 page', async ({ page }) => {
+    // Same ambiguity as the donate-page test below: without a backend to
+    // confirm the id doesn't exist, the page shows an API-unreachable
+    // message instead of 404ing — both are correctly-handled outcomes.
+    await page.goto('/ngos/00000000-0000-0000-0000-000000000000');
+
+    const notFoundVisible = await page
+      .getByRole('heading', { name: /page not found/i })
+      .isVisible()
+      .catch(() => false);
+    if (notFoundVisible) {
+      await expect(page.getByRole('link', { name: /go home/i })).toBeVisible();
+      await expect(page.getByRole('link', { name: /explore ngos/i }).first()).toBeVisible();
+    } else {
+      await expect(page.getByText(/couldn.t reach the streamgive api/i)).toBeVisible();
+    }
+  });
+
   test('donate page prompts wallet connection when nothing is connected', async ({ page }) => {
     // A placeholder id — if the backend isn't running or the id doesn't
     // resolve, the page 404s, which is itself a correctly-handled outcome.
@@ -51,5 +69,16 @@ test.describe('core donor flow (no wallet extension required)', () => {
     if (!notFound) {
       await expect(page.getByRole('button', { name: /connect wallet/i })).toBeVisible();
     }
+  });
+
+  test('apply page hides the application form until a wallet is connected', async ({ page }) => {
+    await page.goto('/apply');
+
+    await expect(page.getByRole('heading', { name: /apply as an ngo/i })).toBeVisible();
+    await expect(page.getByText(/connect your wallet to apply/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: /connect wallet/i })).toBeVisible();
+
+    await expect(page.getByLabel(/organization name/i)).not.toBeVisible();
+    await expect(page.getByRole('button', { name: /submit application/i })).not.toBeVisible();
   });
 });

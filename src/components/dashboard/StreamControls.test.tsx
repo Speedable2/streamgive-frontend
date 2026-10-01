@@ -8,6 +8,15 @@ import { StreamControls, computeModifyRate } from './StreamControls';
 
 const DONOR_ADDRESS = 'G' + 'D'.repeat(55);
 
+// vi.mock factories are hoisted above imports, so anything they reference
+// has to go through vi.hoisted to avoid a TDZ error — and doing so gives
+// every test a stable showToast/useDonationVaultClient reference to assert
+// against, rather than a fresh vi.fn() per render.
+const { showToast, useDonationVaultClient } = vi.hoisted(() => ({
+  showToast: vi.fn(),
+  useDonationVaultClient: vi.fn(),
+}));
+
 vi.mock('@/components/wallet/WalletProvider', () => ({
   useWallet: () => ({
     address: DONOR_ADDRESS,
@@ -20,20 +29,31 @@ vi.mock('@/components/wallet/WalletProvider', () => ({
 }));
 
 vi.mock('@/components/toast/ToastProvider', () => ({
-  useToast: () => ({ showToast: vi.fn() }),
+  useToast: () => ({ showToast }),
 }));
+
+vi.mock('@/lib/donationVaultClient', () => ({ useDonationVaultClient }));
 
 // signAndSend never settles, so the component stays in its in-flight state
 // long enough to assert on the button labels.
-const neverSettles = () => ({ signAndSend: () => new Promise(() => { }) });
+const neverSettles = () => ({ signAndSend: () => new Promise(() => {}) });
 
-vi.mock('@/lib/donationVaultClient', () => ({
-  getDonationVaultClient: vi.fn(async () => ({
-    top_up: vi.fn(async () => neverSettles()),
-    modify_rate: vi.fn(async () => neverSettles()),
-    cancel_stream: vi.fn(async () => neverSettles()),
-  })),
-}));
+type ActionResult = () => Promise<{
+  built?: { fee: string };
+  signAndSend: () => Promise<void>;
+}>;
+
+function clientReturning(overrides: {
+  top_up?: ActionResult;
+  modify_rate?: ActionResult;
+  cancel_stream?: ActionResult;
+}) {
+  return {
+    top_up: vi.fn(overrides.top_up ?? (async () => neverSettles())),
+    modify_rate: vi.fn(overrides.modify_rate ?? (async () => neverSettles())),
+    cancel_stream: vi.fn(overrides.cancel_stream ?? (async () => neverSettles())),
+  };
+}
 
 const STREAM: Stream = {
   id: 'stream-1',
@@ -49,9 +69,25 @@ const STREAM: Stream = {
   ngo: { id: 'ngo-1', name: 'Test NGO', ownerAddress: 'G' + 'N'.repeat(55) },
 };
 
+// Small enough that every duration option (even the shortest, 1 week)
+// divides it down to a zero per-second rate — used to exercise the
+// "duration too long for this balance" validation path.
+const TINY_BALANCE_STREAM: Stream = { ...STREAM, balance: '100' };
+
 describe('StreamControls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useDonationVaultClient.mockReturnValue({ client: clientReturning({}), ready: true });
+  });
+
+  it('disables every action button and shows a loading indicator while the contract client is not ready', () => {
+    useDonationVaultClient.mockReturnValue({ client: null, ready: false });
+    render(<StreamControls stream={STREAM} onChanged={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Top up' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Modify rate' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('Preparing contract…');
   });
 
   it('shows "Topping up…" only while a top-up is in flight', async () => {
@@ -65,6 +101,27 @@ describe('StreamControls', () => {
     expect(await screen.findByRole('button', { name: 'Topping up…' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
     expect(screen.queryByText('Cancelling…')).not.toBeInTheDocument();
+  });
+
+  it('shows the estimated network fee once the top-up transaction is assembled', async () => {
+    useDonationVaultClient.mockReturnValue({
+      client: clientReturning({
+        top_up: async () => ({
+          built: { fee: '1000000' },
+          signAndSend: () => new Promise(() => {}),
+        }),
+      }),
+      ready: true,
+    });
+    const user = userEvent.setup();
+    render(<StreamControls stream={STREAM} onChanged={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Top up' }));
+    await user.type(screen.getByLabelText(/amount to add/i), '5');
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    // 1 000 000 stroops = 0.1 XLM.
+    expect(await screen.findByText('Fee ≈ 0.1 XLM')).toBeInTheDocument();
   });
 
   it('shows "Updating…" only while a rate change is in flight', async () => {
@@ -89,6 +146,208 @@ describe('StreamControls', () => {
     expect(await screen.findByRole('button', { name: 'Cancelling…' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Top up' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Modify rate' })).toBeDisabled();
+  });
+
+  describe('mode switching', () => {
+    it('returns to the idle buttons when Back is clicked from top-up mode', async () => {
+      const user = userEvent.setup();
+      render(<StreamControls stream={STREAM} onChanged={vi.fn()} />);
+
+      await user.click(screen.getByRole('button', { name: 'Top up' }));
+      expect(screen.getByLabelText(/amount to add/i)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Back' }));
+
+      expect(screen.queryByLabelText(/amount to add/i)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Top up' })).toBeInTheDocument();
+    });
+
+    it('returns to the idle buttons when Back is clicked from modify-rate mode', async () => {
+      const user = userEvent.setup();
+      render(<StreamControls stream={STREAM} onChanged={vi.fn()} />);
+
+      await user.click(screen.getByRole('button', { name: 'Modify rate' }));
+      expect(screen.getByLabelText(/new duration/i)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Back' }));
+
+      expect(screen.queryByLabelText(/new duration/i)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Modify rate' })).toBeInTheDocument();
+    });
+
+    it('returns to the idle buttons when Never mind is clicked from cancel confirmation', async () => {
+      const user = userEvent.setup();
+      render(<StreamControls stream={STREAM} onChanged={vi.fn()} />);
+
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(screen.getByText(/cancel this stream/i)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Never mind' }));
+
+      expect(screen.queryByText(/cancel this stream/i)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    });
+  });
+
+  describe('top-up amount validation', () => {
+    it('disables Confirm until a valid amount is entered', async () => {
+      const user = userEvent.setup();
+      render(<StreamControls stream={STREAM} onChanged={vi.fn()} />);
+      await user.click(screen.getByRole('button', { name: 'Top up' }));
+
+      expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled();
+
+      await user.type(screen.getByLabelText(/amount to add/i), '0');
+      expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled();
+
+      await user.clear(screen.getByLabelText(/amount to add/i));
+      await user.type(screen.getByLabelText(/amount to add/i), '5');
+      expect(screen.getByRole('button', { name: 'Confirm' })).toBeEnabled();
+    });
+  });
+
+  describe('top-up submission', () => {
+    it('clears the amount and refreshes the list on success', async () => {
+      useDonationVaultClient.mockReturnValue({
+        client: clientReturning({ top_up: async () => ({ signAndSend: async () => {} }) }),
+        ready: true,
+      });
+      const onChanged = vi.fn();
+      const user = userEvent.setup();
+      render(<StreamControls stream={STREAM} onChanged={onChanged} />);
+
+      await user.click(screen.getByRole('button', { name: 'Top up' }));
+      await user.type(screen.getByLabelText(/amount to add/i), '5');
+      await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+      expect(await screen.findByRole('button', { name: 'Top up' })).toBeEnabled();
+      expect(onChanged).toHaveBeenCalledTimes(1);
+      expect(showToast).toHaveBeenCalledWith('success', expect.stringContaining('Stream topped up'));
+    });
+
+    it('shows an error toast and stays interactive when the transaction fails', async () => {
+      useDonationVaultClient.mockReturnValue({
+        client: clientReturning({
+          top_up: async () => ({
+            signAndSend: async () => {
+              throw new Error('Insufficient balance');
+            },
+          }),
+        }),
+        ready: true,
+      });
+      const onChanged = vi.fn();
+      const user = userEvent.setup();
+      render(<StreamControls stream={STREAM} onChanged={onChanged} />);
+
+      await user.click(screen.getByRole('button', { name: 'Top up' }));
+      await user.type(screen.getByLabelText(/amount to add/i), '5');
+      await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+      expect(await screen.findByRole('button', { name: 'Top up' })).toBeEnabled();
+      expect(showToast).toHaveBeenCalledWith('error', 'Insufficient balance');
+      expect(onChanged).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('modify-rate validation', () => {
+    it('shows a validation error instead of submitting when the balance is too small for the duration', async () => {
+      const client = clientReturning({});
+      useDonationVaultClient.mockReturnValue({ client, ready: true });
+      const user = userEvent.setup();
+      render(<StreamControls stream={TINY_BALANCE_STREAM} onChanged={vi.fn()} />);
+
+      await user.click(screen.getByRole('button', { name: 'Modify rate' }));
+      await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+      expect(showToast).toHaveBeenCalledWith(
+        'error',
+        'Remaining balance is too small to stream over this duration.',
+      );
+      // Stays in modify-rate mode rather than entering a pending state.
+      expect(screen.getByLabelText(/new duration/i)).toBeInTheDocument();
+      expect(client.modify_rate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('modify-rate submission', () => {
+    it('refreshes the list on success', async () => {
+      useDonationVaultClient.mockReturnValue({
+        client: clientReturning({ modify_rate: async () => ({ signAndSend: async () => {} }) }),
+        ready: true,
+      });
+      const onChanged = vi.fn();
+      const user = userEvent.setup();
+      render(<StreamControls stream={STREAM} onChanged={onChanged} />);
+
+      await user.click(screen.getByRole('button', { name: 'Modify rate' }));
+      await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+      expect(await screen.findByRole('button', { name: 'Modify rate' })).toBeEnabled();
+      expect(onChanged).toHaveBeenCalledTimes(1);
+      expect(showToast).toHaveBeenCalledWith('success', expect.stringContaining('Rate updated'));
+    });
+
+    it('shows an error toast when the transaction fails', async () => {
+      useDonationVaultClient.mockReturnValue({
+        client: clientReturning({
+          modify_rate: async () => ({
+            signAndSend: async () => {
+              throw new Error('Simulation failed');
+            },
+          }),
+        }),
+        ready: true,
+      });
+      const user = userEvent.setup();
+      render(<StreamControls stream={STREAM} onChanged={vi.fn()} />);
+
+      await user.click(screen.getByRole('button', { name: 'Modify rate' }));
+      await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+      expect(await screen.findByRole('button', { name: 'Modify rate' })).toBeEnabled();
+      expect(showToast).toHaveBeenCalledWith('error', 'Simulation failed');
+    });
+  });
+
+  describe('cancel submission', () => {
+    it('refreshes the list on success', async () => {
+      useDonationVaultClient.mockReturnValue({
+        client: clientReturning({ cancel_stream: async () => ({ signAndSend: async () => {} }) }),
+        ready: true,
+      });
+      const onChanged = vi.fn();
+      const user = userEvent.setup();
+      render(<StreamControls stream={STREAM} onChanged={onChanged} />);
+
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      await user.click(screen.getByRole('button', { name: 'Yes, cancel' }));
+
+      expect(await screen.findByRole('button', { name: 'Cancel' })).toBeEnabled();
+      expect(onChanged).toHaveBeenCalledTimes(1);
+      expect(showToast).toHaveBeenCalledWith('success', expect.stringContaining('Stream cancelled'));
+    });
+
+    it('shows an error toast when the transaction fails', async () => {
+      useDonationVaultClient.mockReturnValue({
+        client: clientReturning({
+          cancel_stream: async () => ({
+            signAndSend: async () => {
+              throw new Error('Network error');
+            },
+          }),
+        }),
+        ready: true,
+      });
+      const user = userEvent.setup();
+      render(<StreamControls stream={STREAM} onChanged={vi.fn()} />);
+
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      await user.click(screen.getByRole('button', { name: 'Yes, cancel' }));
+
+      expect(await screen.findByRole('button', { name: 'Cancel' })).toBeEnabled();
+      expect(showToast).toHaveBeenCalledWith('error', 'Network error');
+    });
   });
 });
 
