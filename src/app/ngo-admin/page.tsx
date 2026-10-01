@@ -7,6 +7,7 @@ import { ConnectWalletPrompt } from '@/components/common/ConnectWalletPrompt';
 import { CopyAddressButton } from '@/components/common/CopyAddressButton';
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
+import { DonateQrCode } from '@/components/ngos/DonateQrCode';
 import { EmbedSnippet } from '@/components/ngoAdmin/EmbedSnippet';
 import { WithdrawButton } from '@/components/ngoAdmin/WithdrawButton';
 import { StreamDetailsModal } from '@/components/streams/StreamDetailsModal';
@@ -66,10 +67,14 @@ export default function NgoAdminPage() {
     void refresh();
   }, [refresh]);
 
+  const totalWithdrawn = streams.reduce((sum, s) => sum + BigInt(s.withdrawn), 0n);
+  const remainingBalance = streams.reduce((sum, s) => sum + (s.status === 'ACTIVE' ? BigInt(s.balance) : 0n), 0n);
+  const activeCount = streams.filter((s) => s.status === 'ACTIVE').length;
+
   return (
     <>
       <Header />
-      <main className="px-6 py-16 sm:px-12">
+      <main id="main" className="px-6 py-16 sm:px-12">
         <h1 className="text-2xl font-bold">NGO admin</h1>
 
         {!address && (
@@ -116,6 +121,25 @@ export default function NgoAdminPage() {
             <p className="mt-2 text-gray-600 dark:text-gray-400">
               Managing streams for {ngo.name}.
             </p>
+
+            <div className="flex flex-wrap items-start gap-8">
+              <EmbedSnippet ngoId={ngo.id} />
+              <DonateQrCode ngoId={ngo.id} ngoName={ngo.name} />
+            </div>
+            <dl className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-3">
+              <div>
+                <dt className="text-sm text-gray-500 dark:text-gray-400">Total withdrawn</dt>
+                <dd className="text-lg font-semibold">{formatAmount(totalWithdrawn.toString())}</dd>
+              </div>
+              <div>
+                <dt className="text-sm text-gray-500 dark:text-gray-400">Remaining balance</dt>
+                <dd className="text-lg font-semibold">{formatAmount(remainingBalance.toString())}</dd>
+              </div>
+              <div>
+                <dt className="text-sm text-gray-500 dark:text-gray-400">Active streams</dt>
+                <dd className="text-lg font-semibold">{activeCount}</dd>
+              </div>
+            </dl>
 
             <EmbedSnippet ngoId={ngo.id} />
 
