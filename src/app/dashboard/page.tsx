@@ -261,10 +261,11 @@ export default function DashboardPage() {
                         <StreamControls stream={stream} onChanged={refresh} />
                       )}
                     </div>
+                  </div>
                   </li>
-                );
-              })}
-            </ul>
+                ))}
+              </ul>
+            )}
 
             {hasMore && (
               <div className="mt-8 flex justify-center">

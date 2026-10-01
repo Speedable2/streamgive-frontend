@@ -24,13 +24,7 @@ const DURATIONS = [
 type TokenChoice = 'native' | 'usdc' | 'custom';
 type SubmitState = 'idle' | 'signing' | 'success' | 'error';
 
-export function CreateStreamForm({
-  ngoAddress,
-  ngoId,
-}: {
-  ngoAddress: string;
-  ngoId?: string;
-}) {
+export function CreateStreamForm({ ngoAddress, ngoId }: { ngoAddress: string; ngoId?: string }) {
   const router = useRouter();
   const { address, signTransaction } = useWallet();
   const { client, ready } = useDonationVaultClient();
@@ -49,8 +43,18 @@ export function CreateStreamForm({
   const depositRaw = parseAmount(amount);
   const isAmountValid = depositRaw !== null;
 
+  // Integer division truncates: a deposit that doesn't divide evenly by the
+  // duration leaves a remainder the per-second rate can't carry (issue
+  // #156). The deposit itself is still submitted in full -- the contract
+  // has no partial-deposit call -- so that remainder sits in the stream's
+  // balance until cancel/top-up rather than ever actually streaming out.
+  // Surfaced below so the donor sees the real effective total up front
+  // instead of only discovering the dust on cancel.
   const rateRaw = depositRaw !== null ? depositRaw / BigInt(durationSeconds) : null;
   const isRateValid = rateRaw !== null && rateRaw > 0n;
+  const effectiveStreamedRaw = rateRaw !== null ? rateRaw * BigInt(durationSeconds) : null;
+  const leftoverRaw =
+    depositRaw !== null && effectiveStreamedRaw !== null ? depositRaw - effectiveStreamedRaw : null;
 
   const STELLAR_CONTRACT_RE = /^C[A-Z2-7]{55}$/;
   const customTokenTrimmed = customToken.trim();
@@ -239,7 +243,8 @@ export function CreateStreamForm({
             />
             {!isCustomTokenFormatValid && (
               <p id="custom-token-error" className="mt-1 text-sm text-amber-600 dark:text-amber-400">
-                Must be a Stellar contract address starting with C followed by 55 uppercase letters or digits 2–7.
+                Must be a Stellar contract address starting with C followed by 55 uppercase letters
+                or digits 2–7.
               </p>
             )}
           </>
@@ -293,6 +298,14 @@ export function CreateStreamForm({
           {isRateValid
             ? `That's roughly ${(Number(rateRaw) / 10 ** TOKEN_DECIMALS).toFixed(7)} per second.`
             : 'That amount is too small to stream over this duration — try a shorter one.'}
+        </p>
+      )}
+
+      {isRateValid && leftoverRaw !== null && leftoverRaw > 0n && effectiveStreamedRaw !== null && (
+        <p className="text-sm text-amber-600 dark:text-amber-400">
+          Only {formatAmount(effectiveStreamedRaw.toString())} of your deposit will stream out at
+          this rate; the remaining {formatAmount(leftoverRaw.toString())} stays in the stream&apos;s
+          balance until you cancel or top up.
         </p>
       )}
 

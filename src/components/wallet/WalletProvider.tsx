@@ -119,6 +119,7 @@ function ensureKitInitialized(): void {
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [address, setAddress] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(true);
+  const [networkMismatch, setNetworkMismatch] = useState(false);
 
   useEffect(() => {
     ensureKitInitialized();

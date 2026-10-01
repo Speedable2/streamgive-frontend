@@ -31,12 +31,17 @@ export type Ngo = {
  *
  * Server-side fetch cached for 30s via Next.js `revalidate`.
  *
+ * @param signal - Optional caller-supplied abort signal (e.g. a polling
+ * effect's cleanup), combined with the request's own timeout so either one
+ * can cancel the fetch.
  * @throws {Error} if the response is not ok.
  */
-export async function getNgos(): Promise<Ngo[]> {
+export async function getNgos(signal?: AbortSignal): Promise<Ngo[]> {
   const res = await fetch(`${API_URL}/ngos`, {
     next: { revalidate: 30 },
-    signal: AbortSignal.timeout(API_TIMEOUT_MS),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(API_TIMEOUT_MS)])
+      : AbortSignal.timeout(API_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw new Error(`Failed to fetch NGOs: ${res.status}`);
@@ -59,15 +64,20 @@ export type NgoProfile = Ngo & {
  * Server-side fetch cached for 30s via Next.js `revalidate`.
  *
  * @param id - NGO id.
+ * @param signal - Optional caller-supplied abort signal (e.g. a polling
+ * effect's cleanup), combined with the request's own timeout so either one
+ * can cancel the fetch.
  * @returns The profile, or `null` for a genuine 404 (distinct from a
  * thrown network/server error) so the caller can render "not found"
  * instead of an error state.
  * @throws {Error} if the response is not ok and not a 404.
  */
-export async function getNgo(id: string): Promise<NgoProfile | null> {
+export async function getNgo(id: string, signal?: AbortSignal): Promise<NgoProfile | null> {
   const res = await fetch(`${API_URL}/ngos/${id}`, {
     next: { revalidate: 30 },
-    signal: AbortSignal.timeout(API_TIMEOUT_MS),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(API_TIMEOUT_MS)])
+      : AbortSignal.timeout(API_TIMEOUT_MS),
   });
   if (res.status === 404) {
     return null;

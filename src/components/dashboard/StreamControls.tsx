@@ -4,7 +4,7 @@ import { useState } from 'react';
 
 import { useToast } from '@/components/toast/ToastProvider';
 import { useWallet } from '@/components/wallet/WalletProvider';
-import type { Stream } from '@/lib/api';
+import { getStreams, type Stream } from '@/lib/api';
 import { useDonationVaultClient } from '@/lib/donationVaultClient';
 import { formatEstimatedFee, parseAmount, TOKEN_DECIMALS } from '@/lib/format';
 
@@ -115,18 +115,42 @@ export function StreamControls({
   async function handleModifyRate(): Promise<void> {
     if (!address || !client) return;
 
-    // Re-rate the stream's *remaining* balance over a newly chosen
-    // duration — asking a donor for a raw per-second rate makes no more
-    // sense here than it did on the create-stream form.
-    const newRate = computeModifyRate(stream.balance, durationSeconds);
-    if (newRate === null) {
-      showToast('error', 'Remaining balance is too small to stream over this duration.');
-      return;
-    }
-
-    setMode('idle');
     setPending('modifyRate');
     try {
+      // Re-fetch the stream's balance immediately before computing the new
+      // rate, rather than trusting `stream.balance` (issue #159): that prop
+      // is only as fresh as this component's last render, and the balance
+      // moves on its own as the stream drains between then and now, or
+      // could have changed from a top-up/withdrawal elsewhere. Rating
+      // against a stale number targets a balance that no longer exists,
+      // making the stream run out earlier or later than the donor intended.
+      // This still polls the same indexer-backed list endpoint onChanged()
+      // itself uses (see INDEXING_LAG_NOTE below), so it is the freshest
+      // balance available here, not a guarantee of exact on-chain accuracy.
+      const freshStreams = await getStreams({ donor: address });
+      const freshStream = freshStreams.find((s) => s.id === stream.id);
+      if (!freshStream) {
+        showToast(
+          'error',
+          "Couldn't find this stream's current balance — it may have been cancelled.",
+        );
+        return;
+      }
+
+      // Re-rate the stream's *remaining* balance over a newly chosen
+      // duration — asking a donor for a raw per-second rate makes no more
+      // sense here than it did on the create-stream form.
+      const newRate = computeModifyRate(freshStream.balance, durationSeconds);
+      if (newRate === null) {
+        showToast('error', 'Remaining balance is too small to stream over this duration.');
+        return;
+      }
+
+      // Only now is submission actually going ahead -- stay in "modifying"
+      // mode (duration picker visible) until this point so a validation
+      // failure above leaves the donor able to immediately try a shorter
+      // duration, instead of being kicked back to the idle button row.
+      setMode('idle');
       const tx = await client.modify_rate({
         stream_id: BigInt(stream.onChainId),
         new_rate: newRate,

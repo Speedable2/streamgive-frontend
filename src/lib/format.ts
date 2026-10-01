@@ -2,17 +2,21 @@
 // places — fixed by the protocol, not something per-asset to look up.
 export const TOKEN_DECIMALS = 7;
 
-// Decimal separator for the active locale, derived without touching the
-// raw amount so it can't be a source of precision loss itself.
-const DECIMAL_SEPARATOR = (1.1).toLocaleString(undefined, {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-})[1];
+// Fixed at 'en-US' rather than the viewer's browser locale (issue #155): a
+// locale-dependent decimal separator makes the same on-screen amount read
+// as two different numbers for two viewers (",5" is 5 for a de-DE reader
+// but a fraction for an en-US one), which is ambiguous for money in a way
+// it isn't for ordinary UI text. Every viewer of the same stream must see
+// the same digits, comma for grouping and period for the decimal point,
+// regardless of their own browser's locale setting.
+const AMOUNT_LOCALE = 'en-US';
 
 /** Formats a raw i128 amount string (as returned by the backend) into a
  * human-readable decimal. Splits the integer/fractional parts on the
  * BigInt directly, so precision is preserved even for values well past
- * Number.MAX_SAFE_INTEGER. */
+ * Number.MAX_SAFE_INTEGER. Always renders with 'en-US' grouping/decimal
+ * conventions (comma thousands separator, period decimal point) regardless
+ * of the viewer's browser locale (issue #155). */
 export function formatAmount(raw: string): string {
   const value = BigInt(raw);
   const isNegative = value < 0n;
@@ -22,11 +26,21 @@ export function formatAmount(raw: string): string {
   const whole = abs / divisor;
   const fraction = abs % divisor;
 
-  const wholeStr = whole.toLocaleString(undefined);
+  const wholeStr = whole.toLocaleString(AMOUNT_LOCALE);
   const fractionStr = fraction.toString().padStart(TOKEN_DECIMALS, '0').replace(/0+$/, '');
 
-  const formatted = fractionStr ? `${wholeStr}${DECIMAL_SEPARATOR}${fractionStr}` : wholeStr;
+  const formatted = fractionStr ? `${wholeStr}.${fractionStr}` : wholeStr;
   return isNegative ? `-${formatted}` : formatted;
+}
+
+/** Formats a raw i128 fee estimate (in stroops) for display next to a
+ * pending transaction, or `null` when no estimate is available yet (e.g.
+ * before the first simulation completes). */
+export function formatEstimatedFee(feeStroops: string | undefined): string | null {
+  if (!feeStroops) {
+    return null;
+  }
+  return `≈ ${formatAmount(feeStroops)} XLM`;
 }
 
 /** Parses a user-typed decimal amount (e.g. from a text input) into a raw
@@ -98,26 +112,6 @@ export function formatRemainingDuration(balance: string, rate: string): string {
     return `~${pluralize(Math.floor(totalSeconds / SECONDS_PER_HOUR), 'hour')} remaining`;
   }
   return `~${pluralize(Math.floor(totalSeconds / SECONDS_PER_DAY), 'day')} remaining`;
-}
-
-/**
- * Formats a simulated transaction's estimated network fee for display
- * before the wallet's signing prompt appears.
- *
- * `feeStroops` is `AssembledTransaction.built.fee` — a decimal string in
- * stroops (the same 7-decimal-place unit as XLM itself, so it can go
- * straight through formatAmount), set once Client.from()'s generated
- * method has simulated the call. It's an estimate, not what gets charged:
- * the network can end up billing a different amount depending on
- * congestion and final resource usage.
- *
- * @returns "≈ 0.0000123 XLM", or null while no estimate is available yet.
- */
-export function formatEstimatedFee(feeStroops: string | undefined): string | null {
-  if (!feeStroops) {
-    return null;
-  }
-  return `≈ ${formatAmount(feeStroops)} XLM`;
 }
 
 /** Shortens a wallet/contract address to its first and last 4 characters.

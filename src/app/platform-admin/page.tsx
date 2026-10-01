@@ -198,6 +198,8 @@ export default function PlatformAdminPage() {
                     </p>
                   </div>
                   <div className="flex w-full shrink-0 flex-col gap-2 sm:w-64">
+                    {statusFilter === 'PENDING' ? (
+                      <>
                     <label className="block">
                       <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
                         Review note (optional)
@@ -256,7 +258,6 @@ export default function PlatformAdminPage() {
                         </>
                       )}
                     </div>
-                        </div>
                       </>
                     ) : (
                       <div>

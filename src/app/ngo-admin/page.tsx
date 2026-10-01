@@ -12,6 +12,7 @@ import { NgoAdminStreamList } from '@/components/ngoAdmin/NgoAdminStreamList';
 import { StreamDetailsModal } from '@/components/streams/StreamDetailsModal';
 import { useWallet } from '@/components/wallet/WalletProvider';
 import { getStreams, lookupNgoByAddress, type Ngo, type Stream } from '@/lib/api';
+import { formatAmount } from '@/lib/format';
 
 export default function NgoAdminPage() {
   const { address } = useWallet();
