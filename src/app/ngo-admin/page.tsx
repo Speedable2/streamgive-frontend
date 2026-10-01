@@ -67,6 +67,10 @@ export default function NgoAdminPage() {
     void refresh();
   }, [refresh]);
 
+  const totalWithdrawn = streams.reduce((sum, s) => sum + BigInt(s.withdrawn), 0n);
+  const remainingBalance = streams.reduce((sum, s) => sum + (s.status === 'ACTIVE' ? BigInt(s.balance) : 0n), 0n);
+  const activeCount = streams.filter((s) => s.status === 'ACTIVE').length;
+
   return (
     <>
       <Header />
@@ -122,6 +126,22 @@ export default function NgoAdminPage() {
               <EmbedSnippet ngoId={ngo.id} />
               <DonateQrCode ngoId={ngo.id} ngoName={ngo.name} />
             </div>
+            <dl className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-3">
+              <div>
+                <dt className="text-sm text-gray-500 dark:text-gray-400">Total withdrawn</dt>
+                <dd className="text-lg font-semibold">{formatAmount(totalWithdrawn.toString())}</dd>
+              </div>
+              <div>
+                <dt className="text-sm text-gray-500 dark:text-gray-400">Remaining balance</dt>
+                <dd className="text-lg font-semibold">{formatAmount(remainingBalance.toString())}</dd>
+              </div>
+              <div>
+                <dt className="text-sm text-gray-500 dark:text-gray-400">Active streams</dt>
+                <dd className="text-lg font-semibold">{activeCount}</dd>
+              </div>
+            </dl>
+
+            <EmbedSnippet ngoId={ngo.id} />
 
             {streams.length === 0 ? (
               <p className="mt-8 text-gray-600 dark:text-gray-400">

@@ -149,6 +149,10 @@ export function CreateStreamForm({
 
       setStreamId(newStreamId);
       setSubmitState('success');
+      setAmount('');
+      setDurationSeconds(DURATIONS[1].seconds);
+      setTokenChoice('native');
+      setCustomToken('');
       if (ngoId) {
         router.push(`/ngos/${ngoId}/donate/success?streamId=${newStreamId}`);
       }
@@ -173,23 +177,24 @@ export function CreateStreamForm({
     );
   }
 
-  if (submitState === 'success' && streamId !== null) {
-    return (
-      <div className="rounded-lg border border-green-200 bg-green-50 p-6 dark:border-green-900 dark:bg-green-950">
-        <p className="font-medium text-green-800 dark:text-green-300">Stream started!</p>
-        <p className="mt-1 text-sm text-green-700 dark:text-green-400">
-          Stream #{streamId} is now active.
-        </p>
-      </div>
-    );
-  }
+  // We no longer return early here, as the user might want to create another stream.
 
   if (!address) {
     return <ConnectWalletPrompt message="Connect your wallet to start a stream." />;
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)} className="max-w-md space-y-6">
+    <div className="space-y-8">
+      {submitState === 'success' && streamId !== null && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-6 dark:border-green-900 dark:bg-green-950">
+          <p className="font-medium text-green-800 dark:text-green-300">Stream started!</p>
+          <p className="mt-1 text-sm text-green-700 dark:text-green-400">
+            Stream #{streamId} is now active.
+          </p>
+        </div>
+      )}
+
+      <form onSubmit={(event) => void handleSubmit(event)} className="max-w-md space-y-6">
       <fieldset>
         <legend className="text-sm font-medium">Token</legend>
         <div className="mt-2 flex gap-4 text-sm">
@@ -309,5 +314,6 @@ export function CreateStreamForm({
             : 'Review & Sign'}
       </button>
     </form>
+    </div>
   );
 }
