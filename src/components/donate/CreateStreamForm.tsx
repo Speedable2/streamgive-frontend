@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 
 import { ConnectWalletPrompt } from '@/components/common/ConnectWalletPrompt';
 import { useWallet } from '@/components/wallet/WalletProvider';
@@ -10,6 +10,7 @@ import { formatAmount, formatEstimatedFee, parseAmount, TOKEN_DECIMALS } from '@
 import {
   DONATION_VAULT_CONTRACT_ID,
   getNativeAssetAddress,
+  getTokenBalance,
   getUsdcAssetAddress,
 } from '@/lib/stellar';
 
@@ -36,6 +37,8 @@ export function CreateStreamForm({ ngoAddress, ngoId }: { ngoAddress: string; ng
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [streamId, setStreamId] = useState<string | null>(null);
   const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
+  const [walletBalance, setWalletBalance] = useState<string | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
 
   const depositRaw = parseAmount(amount);
   const isAmountValid = depositRaw !== null;
@@ -62,12 +65,68 @@ export function CreateStreamForm({ ngoAddress, ngoId }: { ngoAddress: string; ng
   const isTokenValid =
     tokenChoice !== 'custom' ||
     (customTokenTrimmed.length > 0 && STELLAR_CONTRACT_RE.test(customTokenTrimmed));
+
+  // The token address actually being donated in, resolved the same way for
+  // both the balance check below and the real create_stream call — null
+  // while "Custom asset" is selected but its address isn't valid/complete
+  // yet, since there is nothing to look a balance up for in that case.
+  const selectedTokenAddress =
+    tokenChoice === 'native'
+      ? getNativeAssetAddress()
+      : tokenChoice === 'usdc'
+        ? getUsdcAssetAddress()
+        : isCustomTokenFormatValid && customTokenTrimmed.length > 0
+          ? customTokenTrimmed
+          : null;
+
+  const insufficientBalance =
+    walletBalance !== null && depositRaw !== null && depositRaw > BigInt(walletBalance);
+
   const canSubmit =
-    isAmountValid && isRateValid && isTokenValid && submitState !== 'signing' && ready;
+    isAmountValid &&
+    isRateValid &&
+    isTokenValid &&
+    !insufficientBalance &&
+    submitState !== 'signing' &&
+    ready;
+
+  useEffect(() => {
+    if (!address || !selectedTokenAddress) {
+      setWalletBalance(null);
+      return;
+    }
+
+    let cancelled = false;
+    setBalanceLoading(true);
+    setWalletBalance(null);
+
+    getTokenBalance(selectedTokenAddress, address)
+      .then((balance) => {
+        if (!cancelled) {
+          setWalletBalance(balance);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setBalanceLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [address, selectedTokenAddress]);
 
   async function handleSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
-    if (!canSubmit || !address || !client || depositRaw === null || rateRaw === null) {
+    if (
+      !canSubmit ||
+      !address ||
+      !client ||
+      !selectedTokenAddress ||
+      depositRaw === null ||
+      rateRaw === null
+    ) {
       return;
     }
 
@@ -76,17 +135,10 @@ export function CreateStreamForm({ ngoAddress, ngoId }: { ngoAddress: string; ng
     setEstimatedFee(null);
 
     try {
-      const tokenAddress =
-        tokenChoice === 'native'
-          ? getNativeAssetAddress()
-          : tokenChoice === 'usdc'
-            ? getUsdcAssetAddress()
-            : customToken.trim();
-
       const tx = await client.create_stream({
         donor: address,
         ngo: ngoAddress,
-        token: tokenAddress,
+        token: selectedTokenAddress,
         deposit: depositRaw,
         rate: rateRaw,
       });
@@ -101,6 +153,10 @@ export function CreateStreamForm({ ngoAddress, ngoId }: { ngoAddress: string; ng
 
       setStreamId(newStreamId);
       setSubmitState('success');
+      setAmount('');
+      setDurationSeconds(DURATIONS[1].seconds);
+      setTokenChoice('native');
+      setCustomToken('');
       if (ngoId) {
         router.push(`/ngos/${ngoId}/donate/success?streamId=${newStreamId}`);
       }
@@ -125,23 +181,24 @@ export function CreateStreamForm({ ngoAddress, ngoId }: { ngoAddress: string; ng
     );
   }
 
-  if (submitState === 'success' && streamId !== null) {
-    return (
-      <div className="rounded-lg border border-green-200 bg-green-50 p-6 dark:border-green-900 dark:bg-green-950">
-        <p className="font-medium text-green-800 dark:text-green-300">Stream started!</p>
-        <p className="mt-1 text-sm text-green-700 dark:text-green-400">
-          Stream #{streamId} is now active.
-        </p>
-      </div>
-    );
-  }
+  // We no longer return early here, as the user might want to create another stream.
 
   if (!address) {
     return <ConnectWalletPrompt message="Connect your wallet to start a stream." />;
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)} className="max-w-md space-y-6">
+    <div className="space-y-8">
+      {submitState === 'success' && streamId !== null && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-6 dark:border-green-900 dark:bg-green-950">
+          <p className="font-medium text-green-800 dark:text-green-300">Stream started!</p>
+          <p className="mt-1 text-sm text-green-700 dark:text-green-400">
+            Stream #{streamId} is now active.
+          </p>
+        </div>
+      )}
+
+      <form onSubmit={(event) => void handleSubmit(event)} className="max-w-md space-y-6">
       <fieldset>
         <legend className="text-sm font-medium">Token</legend>
         <div className="mt-2 flex gap-4 text-sm">
@@ -180,10 +237,12 @@ export function CreateStreamForm({ ngoAddress, ngoId }: { ngoAddress: string; ng
               value={customToken}
               onChange={(event) => setCustomToken(event.target.value)}
               placeholder="Token contract address (C...)"
+              aria-invalid={!isCustomTokenFormatValid || undefined}
+              aria-describedby={!isCustomTokenFormatValid ? 'custom-token-error' : undefined}
               className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
             />
             {!isCustomTokenFormatValid && (
-              <p className="mt-1 text-sm text-amber-600 dark:text-amber-400">
+              <p id="custom-token-error" className="mt-1 text-sm text-amber-600 dark:text-amber-400">
                 Must be a Stellar contract address starting with C followed by 55 uppercase letters
                 or digits 2–7.
               </p>
@@ -201,8 +260,22 @@ export function CreateStreamForm({ ngoAddress, ngoId }: { ngoAddress: string; ng
           value={amount}
           onChange={(event) => setAmount(event.target.value)}
           placeholder="100"
+          aria-invalid={isAmountValid && !isRateValid || undefined}
+          aria-describedby={isAmountValid && !isRateValid ? 'amount-error' : undefined}
           className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
         />
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {balanceLoading
+            ? 'Checking wallet balance…'
+            : walletBalance !== null
+              ? `Wallet balance: ${formatAmount(walletBalance)}`
+              : null}
+        </p>
+        {insufficientBalance && (
+          <p className="mt-1 text-sm text-amber-600 dark:text-amber-400">
+            This exceeds your wallet balance — the transaction will fail.
+          </p>
+        )}
       </label>
 
       <label className="block">
@@ -221,7 +294,7 @@ export function CreateStreamForm({ ngoAddress, ngoId }: { ngoAddress: string; ng
       </label>
 
       {isAmountValid && rateRaw !== null && (
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p id={!isRateValid ? 'amount-error' : undefined} className="text-sm text-gray-500 dark:text-gray-400">
           {isRateValid
             ? `That's roughly ${(Number(rateRaw) / 10 ** TOKEN_DECIMALS).toFixed(7)} per second.`
             : 'That amount is too small to stream over this duration — try a shorter one.'}
@@ -258,5 +331,6 @@ export function CreateStreamForm({ ngoAddress, ngoId }: { ngoAddress: string; ng
             : 'Review & Sign'}
       </button>
     </form>
+    </div>
   );
 }

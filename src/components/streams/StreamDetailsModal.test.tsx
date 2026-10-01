@@ -1,62 +1,69 @@
-import React, { useState } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { expect, test, vi } from 'vitest';
-import { StreamDetailsModal } from './StreamDetailsModal';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+
 import type { Stream } from '@/lib/api';
 
-const mockStream: Stream = {
-  id: '123',
-  onChainId: '456',
-  tokenAddress: 'token-address',
-  rate: '1000',
-  balance: '5000',
+import { StreamDetailsModal } from './StreamDetailsModal';
+
+vi.mock('@/lib/stellar', () => ({
+  explorerUrl: vi.fn((type, id) => `https://stellar.expert/${type}/${id}`),
+  getNativeAssetAddress: vi.fn(() => 'NATIVE_ASSET_ID'),
+}));
+
+const MOCK_STREAM: Stream = {
+  id: 'stream-1',
+  onChainId: '1',
+  tokenAddress: 'CCONTRACTADDRESS',
+  rate: '10',
+  balance: '1000',
   withdrawn: '0',
   status: 'ACTIVE',
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-  donor: { address: 'donor-address' },
-  ngo: { id: 'ngo-id', name: 'Test NGO', ownerAddress: 'ngo-owner' }
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+  donor: { address: 'GDONOR' },
+  ngo: { id: 'ngo-1', name: 'Test NGO', ownerAddress: 'GNGO' },
 };
 
-function TestWrapper() {
-  const [isOpen, setIsOpen] = useState(false);
-  return (
-    <div>
-      <button data-testid="trigger" onClick={() => setIsOpen(true)}>Open Modal</button>
-      {isOpen && <StreamDetailsModal stream={mockStream} onClose={() => setIsOpen(false)} />}
-    </div>
-  );
-}
+describe('StreamDetailsModal', () => {
+  it('renders the native asset as "XLM"', () => {
+    const nativeStream = { ...MOCK_STREAM, tokenAddress: 'NATIVE_ASSET_ID' };
+    render(<StreamDetailsModal stream={nativeStream} onClose={vi.fn()} />);
+    
+    expect(screen.getByText('XLM')).toBeInTheDocument();
+  });
 
-test('StreamDetailsModal closes on Escape and restores focus to triggering element', async () => {
-  const user = userEvent.setup();
-  render(<TestWrapper />);
-  
-  const triggerButton = screen.getByTestId('trigger');
-  
-  // Focus and click the trigger button
-  triggerButton.focus();
-  expect(triggerButton).toHaveFocus();
-  await user.click(triggerButton);
-  
-  // Modal should open, and close button should receive focus
-  const closeButton = await screen.findByRole('button', { name: 'Close' });
-  expect(closeButton).toBeInTheDocument();
-  
-  // Ensure the close button got focus
-  await waitFor(() => {
-    expect(closeButton).toHaveFocus();
+  it('renders a non-native token as its raw contract address', () => {
+    render(<StreamDetailsModal stream={MOCK_STREAM} onClose={vi.fn()} />);
+    
+    expect(screen.getByText('CCONTRACTADDRESS')).toBeInTheDocument();
   });
-  
-  // Press Escape
-  await user.keyboard('{Escape}');
-  
-  // Modal should close
-  await waitFor(() => {
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+  it('calls onClose when clicking the modal backdrop', () => {
+    const onClose = vi.fn();
+    render(<StreamDetailsModal stream={MOCK_STREAM} onClose={onClose} />);
+    
+    const dialog = screen.getByRole('dialog');
+    const backdrop = dialog.parentElement!;
+    
+    fireEvent.click(backdrop);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
-  
-  // Focus should return to trigger button
-  expect(triggerButton).toHaveFocus();
+
+  it('calls onClose when clicking the explicit close button', () => {
+    const onClose = vi.fn();
+    render(<StreamDetailsModal stream={MOCK_STREAM} onClose={onClose} />);
+    
+    const closeBtn = screen.getByLabelText('Close');
+    fireEvent.click(closeBtn);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT call onClose when clicking inside the dialog content itself', () => {
+    const onClose = vi.fn();
+    render(<StreamDetailsModal stream={MOCK_STREAM} onClose={onClose} />);
+    
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

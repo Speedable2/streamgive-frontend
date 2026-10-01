@@ -31,10 +31,13 @@ vi.mock('@/components/wallet/WalletProvider', () => ({
   }),
 }));
 
+const mockGetTokenBalance = vi.fn();
+
 vi.mock('@/lib/stellar', () => ({
   DONATION_VAULT_CONTRACT_ID: 'CDONATIONVAULT',
   getNativeAssetAddress: () => NATIVE_TOKEN_ADDRESS,
   getUsdcAssetAddress: () => USDC_TOKEN_ADDRESS,
+  getTokenBalance: (...args: unknown[]) => mockGetTokenBalance(...args),
 }));
 
 const mockCreateStream = vi.fn();
@@ -47,6 +50,8 @@ describe('CreateStreamForm', () => {
   beforeEach(() => {
     mockCreateStream.mockReset();
     mockPush.mockReset();
+    mockGetTokenBalance.mockReset();
+    mockGetTokenBalance.mockResolvedValue('50000000000'); // 5,000 in raw units
     vi.mocked(useDonationVaultClient).mockReturnValue({
       client: { create_stream: mockCreateStream } as never,
       ready: true,
@@ -73,6 +78,26 @@ describe('CreateStreamForm', () => {
     await user.type(screen.getByPlaceholderText('100'), '100');
 
     expect(submit).not.toBeDisabled();
+  });
+
+  it('recalculates the displayed per-second rate as the amount and duration change', async () => {
+    const user = userEvent.setup();
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+
+    // 100 XLM over the default 1-month duration.
+    await user.type(screen.getByPlaceholderText('100'), '100');
+    expect(screen.getByText("That's roughly 0.0000385 per second.")).toBeInTheDocument();
+
+    // Same amount, switched to the shorter 1-week duration — same deposit
+    // spread over fewer seconds means a higher rate.
+    await user.selectOptions(screen.getByLabelText(/stream over/i), '1 week');
+    expect(screen.getByText("That's roughly 0.0001653 per second.")).toBeInTheDocument();
+
+    // Doubling the amount at the same (1-week) duration doubles the rate.
+    const amountInput = screen.getByPlaceholderText('100');
+    await user.clear(amountInput);
+    await user.type(amountInput, '200');
+    expect(screen.getByText("That's roughly 0.0003306 per second.")).toBeInTheDocument();
   });
 
   it('requires a token address once "Custom asset" is selected', async () => {
@@ -207,5 +232,52 @@ describe('CreateStreamForm', () => {
 
     // 1 000 000 stroops = 0.1 XLM.
     expect(await screen.findByText(/estimated network fee: ≈ 0.1 xlm/i)).toBeInTheDocument();
+  });
+
+  it('fetches and displays the wallet balance for the selected token', async () => {
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+
+    expect(await screen.findByText(/wallet balance: 5,000/i)).toBeInTheDocument();
+    expect(mockGetTokenBalance).toHaveBeenCalledWith(NATIVE_TOKEN_ADDRESS, DONOR_ADDRESS);
+  });
+
+  it('re-fetches the balance when the selected token changes', async () => {
+    const user = userEvent.setup();
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+
+    await screen.findByText(/wallet balance: 5,000/i);
+    mockGetTokenBalance.mockClear();
+    mockGetTokenBalance.mockResolvedValue('20000000000'); // 2,000
+
+    await user.click(screen.getByLabelText(/usdc/i));
+
+    expect(await screen.findByText(/wallet balance: 2,000/i)).toBeInTheDocument();
+    expect(mockGetTokenBalance).toHaveBeenCalledWith('CUSDCFAKE', DONOR_ADDRESS);
+  });
+
+  it('warns and disables submit when the entered amount exceeds the wallet balance', async () => {
+    mockGetTokenBalance.mockResolvedValue('500000000'); // 50
+
+    const user = userEvent.setup();
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+
+    await screen.findByText(/wallet balance: 50/i);
+    await user.type(screen.getByPlaceholderText('100'), '100');
+
+    expect(
+      screen.getByText(/exceeds your wallet balance — the transaction will fail/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /review & sign/i })).toBeDisabled();
+  });
+
+  it('does not warn when the entered amount is within the wallet balance', async () => {
+    const user = userEvent.setup();
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+
+    await screen.findByText(/wallet balance: 5,000/i);
+    await user.type(screen.getByPlaceholderText('100'), '100');
+
+    expect(screen.queryByText(/exceeds your wallet balance/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /review & sign/i })).not.toBeDisabled();
   });
 });

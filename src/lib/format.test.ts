@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { truncateAddress } from './format';
+import { parseAmount, truncateAddress } from './format';
 import { formatAmount } from './format';
 
 describe('formatAmount', () => {
@@ -61,6 +61,26 @@ describe('formatAmount', () => {
       expect(formatAmount('90000000000000')).toBe('9,000,000');
       expect(formatAmount('15000000')).toBe('1.5');
     });
+  });
+});
+
+describe('parseAmount', () => {
+  it('accepts a whole amount written with leading zeros', () => {
+    // '007' is 7 XLM either way — 7 * 10^7 base units. The leading zeros
+    // must not be read as an octal literal or truncated.
+    expect(parseAmount('007')).toBe(70_000_000n);
+  });
+
+  it('accepts a trailing decimal separator with no fractional digits', () => {
+    // '5.' is a normal intermediate state while typing '5.5'; the empty
+    // fraction is worth zero, so the amount is exactly 5 XLM.
+    expect(parseAmount('5.')).toBe(50_000_000n);
+  });
+
+  it('accepts a fractional-only amount with no integer part', () => {
+    // '.5' is half an XLM — 0.5 * 10^7 = 5_000_000 base units. The missing
+    // whole part is read as 0 rather than making the input invalid.
+    expect(parseAmount('.5')).toBe(5_000_000n);
   });
 });
 

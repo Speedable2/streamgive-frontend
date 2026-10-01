@@ -94,13 +94,8 @@ function ensureKitInitialized(): void {
  *    extension keeps its own authorization state independent of this app.
  *    If nothing is authorized, `getAddress()` rejects and `address` simply
  *    stays `null`; this is the expected steady state for a first-time
- *    visitor, not an error. `connecting` is NOT set during this restore —
- *    it's a synchronous-feeling background check, not a user-initiated
- *    action — so UI that gates on `connecting` alone won't reflect this
- *    step. Consumers that need to distinguish "still restoring" from
- *    "confirmed disconnected" should treat `address === null` as
- *    ambiguous until they have another signal (e.g. their own effect
- *    completing).
+ *    visitor, not an error. `connecting` is true during this restore phase,
+ *    so UI can show a loading state instead of flashing a disconnected state.
  * 2. **User-initiated connect.** Calling `connect()` sets `connecting: true`,
  *    opens the wallet-selection auth modal, and on success sets `address`.
  *    `connecting` is always reset to `false` in a `finally`, including when
@@ -123,7 +118,7 @@ function ensureKitInitialized(): void {
  */
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [address, setAddress] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState(false);
+  const [connecting, setConnecting] = useState(true);
   const [networkMismatch, setNetworkMismatch] = useState(false);
 
   useEffect(() => {
@@ -133,12 +128,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     // getAddress() throws when nothing's connected yet — that's the
     // expected, common case, not an error worth surfacing.
     StellarWalletsKit.getAddress()
-      .then(({ address }) => {
-        setAddress(address);
-        return walletNetworkMismatch();
-      })
-      .then(setNetworkMismatch)
-      .catch(() => {});
+      .then(({ address }) => setAddress(address))
+      .catch(() => {})
+      .finally(() => setConnecting(false));
   }, []);
 
   const connect = useCallback(async () => {
