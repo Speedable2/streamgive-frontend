@@ -10,6 +10,8 @@ const DONOR_ADDRESS = 'G' + 'D'.repeat(55);
 const NGO_ADDRESS = 'G' + 'N'.repeat(55);
 const NGO_ID = 'ngo-1';
 const NATIVE_TOKEN_ADDRESS = 'CNATIVEFAKE';
+const USDC_TOKEN_ADDRESS = 'CUSDCFAKE';
+const CUSTOM_TOKEN_ADDRESS = 'C' + 'T'.repeat(55);
 
 const mockSignTransaction = vi.fn();
 const mockPush = vi.fn();
@@ -30,7 +32,9 @@ vi.mock('@/components/wallet/WalletProvider', () => ({
 }));
 
 vi.mock('@/lib/stellar', () => ({
+  DONATION_VAULT_CONTRACT_ID: 'CDONATIONVAULT',
   getNativeAssetAddress: () => NATIVE_TOKEN_ADDRESS,
+  getUsdcAssetAddress: () => USDC_TOKEN_ADDRESS,
 }));
 
 const mockCreateStream = vi.fn();
@@ -81,7 +85,7 @@ describe('CreateStreamForm', () => {
     const submit = screen.getByRole('button', { name: /review & sign/i });
     expect(submit).toBeDisabled();
 
-    await user.type(screen.getByPlaceholderText(/token contract address/i), 'CTOKENADDRESS');
+    await user.type(screen.getByPlaceholderText(/token contract address/i), CUSTOM_TOKEN_ADDRESS);
     expect(submit).not.toBeDisabled();
   });
 
@@ -89,11 +93,46 @@ describe('CreateStreamForm', () => {
     const user = userEvent.setup();
     render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
 
-    // 0.0000001 * 10^7 = 1 raw unit; 1 / (30 days in seconds) rounds to 0.
-    await user.type(screen.getByPlaceholderText('100'), '0.0000001');
+    // 0.000001 * 10^7 = 10 raw units; 10 / (30 days in seconds) rounds to 0.
+    // Not 0.0000001 (1 raw unit): jsdom's number input normalizes a value
+    // below 1e-6 to scientific notation ("1e-7") once committed, which
+    // parseAmount's plain-decimal regex doesn't parse -- the same behavior a
+    // real browser shows for a number input below 1e-6, not a testing
+    // artifact.
+    await user.type(screen.getByPlaceholderText('100'), '0.000001');
 
     expect(screen.getByText(/too small to stream over this duration/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /review & sign/i })).toBeDisabled();
+  });
+
+  it('surfaces the effective streamed total and leftover when the deposit does not divide evenly (#156)', async () => {
+    const user = userEvent.setup();
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+
+    // 100 XLM over the default 1-month (30-day) duration: 1_000_000_000n
+    // stroops / 2_592_000 seconds = 385 stroops/sec (truncated), so only
+    // 385 * 2_592_000 = 997_920_000 stroops (99.792 XLM) actually streams
+    // out of the 1_000_000_000 stroop (100 XLM) deposit -- a leftover of
+    // 2_080_000 stroops (0.208 XLM) that the contract has no way to return
+    // except on cancel.
+    await user.type(screen.getByPlaceholderText('100'), '100');
+
+    expect(
+      screen.getByText(/only 99\.792 of your deposit will stream out at this rate/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/the remaining 0\.208 stays in the stream/i)).toBeInTheDocument();
+  });
+
+  it('does not show a leftover warning when the deposit divides evenly by the duration', async () => {
+    const user = userEvent.setup();
+    render(<CreateStreamForm ngoAddress={NGO_ADDRESS} />);
+
+    // 1 week = 604_800 seconds. A deposit of exactly 604_800 stroops gives a
+    // rate of 1 stroop/sec with zero remainder.
+    await user.selectOptions(screen.getByLabelText(/stream over/i), '604800');
+    await user.type(screen.getByPlaceholderText('100'), '0.0604800');
+
+    expect(screen.queryByText(/stays in the stream/i)).not.toBeInTheDocument();
   });
 
   it('re-enables submit after switching back to XLM (native) from a custom token', async () => {
@@ -104,7 +143,7 @@ describe('CreateStreamForm', () => {
 
     // Switch to custom and type an address so the button is enabled.
     await user.click(screen.getByLabelText(/custom asset/i));
-    await user.type(screen.getByPlaceholderText(/token contract address/i), 'CTOKENADDRESS');
+    await user.type(screen.getByPlaceholderText(/token contract address/i), CUSTOM_TOKEN_ADDRESS);
     expect(screen.getByRole('button', { name: /review & sign/i })).not.toBeDisabled();
 
     // Switch back to native XLM — the custom address no longer matters.
