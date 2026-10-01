@@ -233,10 +233,12 @@ export function CreateStreamForm({
               value={customToken}
               onChange={(event) => setCustomToken(event.target.value)}
               placeholder="Token contract address (C...)"
+              aria-invalid={!isCustomTokenFormatValid || undefined}
+              aria-describedby={!isCustomTokenFormatValid ? 'custom-token-error' : undefined}
               className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
             />
             {!isCustomTokenFormatValid && (
-              <p className="mt-1 text-sm text-amber-600 dark:text-amber-400">
+              <p id="custom-token-error" className="mt-1 text-sm text-amber-600 dark:text-amber-400">
                 Must be a Stellar contract address starting with C followed by 55 uppercase letters or digits 2–7.
               </p>
             )}
@@ -253,6 +255,8 @@ export function CreateStreamForm({
           value={amount}
           onChange={(event) => setAmount(event.target.value)}
           placeholder="100"
+          aria-invalid={isAmountValid && !isRateValid || undefined}
+          aria-describedby={isAmountValid && !isRateValid ? 'amount-error' : undefined}
           className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
         />
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -285,7 +289,7 @@ export function CreateStreamForm({
       </label>
 
       {isAmountValid && rateRaw !== null && (
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p id={!isRateValid ? 'amount-error' : undefined} className="text-sm text-gray-500 dark:text-gray-400">
           {isRateValid
             ? `That's roughly ${(Number(rateRaw) / 10 ** TOKEN_DECIMALS).toFixed(7)} per second.`
             : 'That amount is too small to stream over this duration — try a shorter one.'}

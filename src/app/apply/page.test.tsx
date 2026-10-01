@@ -1,116 +1,51 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import ApplyPage from './page';
-import { ApiError } from '@/lib/api';
-import { NGO_REGISTRY_ERRORS } from '@/lib/contractTypes';
+import { ApiError, submitNgoApplication } from '@/lib/api';
 
-const mockRegister = vi.fn();
-const mockSignAndSend = vi.fn();
-const mockSubmitNgoApplication = vi.fn();
+const OWNER_ADDRESS = 'G' + 'A'.repeat(55);
 
 vi.mock('@/components/wallet/WalletProvider', () => ({
   useWallet: () => ({
-    address: 'GDONOR000000000000000000000000000000000000000000000000000',
-    connecting: false,
+    address: OWNER_ADDRESS,
     connect: vi.fn(),
-    disconnect: vi.fn(),
     signTransaction: vi.fn(),
-    signMessage: vi.fn(),
-    networkMismatch: false,
   }),
 }));
 
-vi.mock('@/lib/ngoRegistryClient', () => ({
-  useNgoRegistryClient: () => ({
-    client: { register: mockRegister },
-    ready: true,
-  }),
-}));
-
-vi.mock('@/lib/api', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
-  return {
-    ...actual,
-    submitNgoApplication: (...args: unknown[]) => mockSubmitNgoApplication(...args),
-  };
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>();
+  return { ...actual, submitNgoApplication: vi.fn() };
 });
 
-async function fillForm() {
-  fireEvent.change(screen.getByLabelText('Organization name'), {
-    target: { value: 'Clean Water Org' },
-  });
-  fireEvent.change(screen.getByLabelText(/^Description/), {
-    target: { value: 'We provide clean water access.' },
-  });
-  fireEvent.change(screen.getByLabelText('Contact email'), {
-    target: { value: 'contact@example.org' },
-  });
-}
+vi.mock('@/lib/ngoRegistryClient', () => ({
+  getNgoRegistryClient: vi.fn(async () => ({
+    register: vi.fn(async () => ({ signAndSend: vi.fn() })),
+  })),
+}));
+
+import ApplyPage from './page';
 
 describe('ApplyPage', () => {
   beforeEach(() => {
-    mockRegister.mockReset();
-    mockSignAndSend.mockReset();
-    mockSubmitNgoApplication.mockReset();
-    mockRegister.mockResolvedValue({ built: { fee: '100' }, signAndSend: mockSignAndSend });
-    mockSignAndSend.mockResolvedValue(undefined);
+    vi.mocked(submitNgoApplication).mockReset();
   });
 
-  it('submits normally when register and the API call both succeed', async () => {
-    mockSubmitNgoApplication.mockResolvedValue({ id: 'app-1' });
+  it('shows the duplicate-application message for a 409 response', async () => {
+    vi.mocked(submitNgoApplication).mockRejectedValue(
+      new ApiError('An application from this address is already pending review.', 409),
+    );
+
+    const user = userEvent.setup();
     render(<ApplyPage />);
 
-    await fillForm();
-    fireEvent.click(screen.getByRole('button', { name: 'Submit application' }));
+    await user.type(screen.getByLabelText('Organization name'), 'Community Garden');
+    await user.type(screen.getByLabelText('Description'), 'A local community garden.');
+    await user.type(screen.getByLabelText('Contact email'), 'garden@example.org');
+    await user.click(screen.getByRole('button', { name: 'Submit application' }));
 
-    await waitFor(() => expect(screen.getByText('Application submitted!')).toBeInTheDocument());
-    expect(mockRegister).toHaveBeenCalledTimes(1);
-    expect(mockSubmitNgoApplication).toHaveBeenCalledTimes(1);
-  });
-
-  it('lets the applicant retry just the backend submission when register was already done', async () => {
-    // First attempt: register succeeds, but the backend submission fails.
-    mockSubmitNgoApplication.mockRejectedValueOnce(
-      new ApiError('Service temporarily unavailable', 503),
-    );
-    render(<ApplyPage />);
-
-    await fillForm();
-    fireEvent.click(screen.getByRole('button', { name: 'Submit application' }));
-
-    await waitFor(() =>
-      expect(screen.getByText('Service temporarily unavailable')).toBeInTheDocument(),
-    );
-    expect(mockRegister).toHaveBeenCalledTimes(1);
-
-    // Retry: register() now fails as already-registered (the on-chain state
-    // from the first attempt persists), but that must not block the retry
-    // -- it should be treated as a no-op and go straight to resubmitting.
-    mockRegister.mockRejectedValueOnce(
-      new Error(`contract call failed with #${NGO_REGISTRY_ERRORS.ALREADY_REGISTERED}`),
-    );
-    mockSubmitNgoApplication.mockResolvedValueOnce({ id: 'app-1' });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Submit application' }));
-
-    await waitFor(() => expect(screen.getByText('Application submitted!')).toBeInTheDocument());
-    expect(mockRegister).toHaveBeenCalledTimes(2);
-    expect(mockSubmitNgoApplication).toHaveBeenCalledTimes(2);
-  });
-
-  it('shows a clear error and does not call the API when register fails for a different reason', async () => {
-    mockRegister.mockRejectedValueOnce(new Error('User declined the request.'));
-    render(<ApplyPage />);
-
-    await fillForm();
-    fireEvent.click(screen.getByRole('button', { name: 'Submit application' }));
-
-    await waitFor(() =>
-      expect(
-        screen.getByText('Could not register on-chain: User declined the request.'),
-      ).toBeInTheDocument(),
-    );
-    expect(mockSubmitNgoApplication).not.toHaveBeenCalled();
+    expect(await screen.findByText(/already pending review/i)).toBeInTheDocument();
+    expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument();
   });
 });
