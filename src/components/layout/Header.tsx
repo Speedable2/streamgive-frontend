@@ -39,16 +39,23 @@ export function Header() {
   }, []);
 
   return (
-    <header className="border-b border-gray-200 px-6 py-4 sm:px-12 dark:border-gray-800">
-      <div className="flex items-center justify-between">
-        <Link
-          href="/"
-          className="flex items-center gap-2 text-lg font-bold"
-          onClick={() => setMenuOpen(false)}
-        >
-          <Logo className="h-5 w-auto" />
-          StreamGive
-        </Link>
+    <>
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-gray-900 focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:focus:bg-gray-900 dark:focus:text-white"
+      >
+        Skip to content
+      </a>
+      <header className="border-b border-gray-200 px-6 py-4 sm:px-12 dark:border-gray-800">
+        <div className="flex items-center justify-between">
+          <Link
+            href="/"
+            className="flex items-center gap-2 text-lg font-bold"
+            onClick={() => setMenuOpen(false)}
+          >
+            <Logo className="h-5 w-auto" />
+            StreamGive
+          </Link>
 
         <nav className="hidden items-center gap-6 md:flex">
           {NAV_LINKS.map((link) => (

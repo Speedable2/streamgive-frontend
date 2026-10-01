@@ -1,4 +1,12 @@
-import { Asset } from '@stellar/stellar-sdk';
+import {
+  Account,
+  Asset,
+  Contract,
+  nativeToScVal,
+  rpc,
+  scValToNative,
+  TransactionBuilder,
+} from '@stellar/stellar-sdk';
 
 export const SOROBAN_RPC_URL =
   process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ?? 'https://soroban-testnet.stellar.org';
@@ -45,6 +53,55 @@ const PUBLIC_NETWORK_PASSPHRASE = 'Public Global Stellar Network ; September 201
 
 /** Human-readable name for whichever network NETWORK_PASSPHRASE selects. */
 export const NETWORK_NAME = NETWORK_PASSPHRASE === PUBLIC_NETWORK_PASSPHRASE ? 'Mainnet' : 'Testnet';
+
+// A fee/sequence-agnostic simulation, not a real submission, so a
+// throwaway source account with sequence 0 is fine — the balance() call
+// being simulated doesn't touch this account at all.
+const SIMULATION_FEE = '100';
+const SIMULATION_SOURCE_ACCOUNT = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+
+/**
+ * Reads a SEP-41 token contract's `balance(id)` for `walletAddress`, via a
+ * simulated (never submitted, never signed) contract call.
+ *
+ * Works for any token contract address — native XLM, USDC, or a
+ * donor-supplied custom asset — since `balance` is part of every SAC and
+ * every standard token contract's interface, unlike `getAssetBalance`,
+ * which only accepts a classic `Asset` and so can't look up an arbitrary
+ * custom contract address.
+ *
+ * @returns The raw i128 balance as a string (same units as everywhere else
+ * in this app — see TOKEN_DECIMALS/formatAmount), or `null` if the
+ * simulation fails (e.g. the address isn't a valid token contract).
+ */
+export async function getTokenBalance(
+  tokenAddress: string,
+  walletAddress: string,
+): Promise<string | null> {
+  try {
+    const server = new rpc.Server(SOROBAN_RPC_URL);
+    const account = new Account(SIMULATION_SOURCE_ACCOUNT, '0');
+    const contract = new Contract(tokenAddress);
+
+    const tx = new TransactionBuilder(account, {
+      fee: SIMULATION_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(contract.call('balance', nativeToScVal(walletAddress, { type: 'address' })))
+      .setTimeout(30)
+      .build();
+
+    const simulated = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(simulated) || !simulated.result) {
+      return null;
+    }
+
+    const balance = scValToNative(simulated.result.retval) as bigint;
+    return balance.toString();
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Builds a stellar.expert URL for an account (wallet/NGO) or contract
