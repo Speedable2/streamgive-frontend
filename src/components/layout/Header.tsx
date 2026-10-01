@@ -99,57 +99,31 @@ export function Header() {
         </div>
       </div>
 
-          <button
-            type="button"
-            onClick={() => setMenuOpen((open) => !open)}
-            aria-expanded={menuOpen}
-            aria-controls="mobile-nav"
-            aria-label="Toggle menu"
-            className="rounded-md p-2 hover:bg-gray-100 md:hidden dark:hover:bg-gray-800"
-          >
-            <svg
-              aria-hidden="true"
-              className="h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              {menuOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-              )}
-            </svg>
-          </button>
-        </div>
+      {menuOpen && (
+        <nav id="mobile-nav" className="mt-4 flex flex-col gap-4 md:hidden">
+          {NAV_LINKS.map((link) => {
+            const isActive = isActiveLink(link.href);
 
-        {menuOpen && (
-          <nav id="mobile-nav" className="mt-4 flex flex-col gap-4 md:hidden">
-            {NAV_LINKS.map((link) => {
-              const isActive = isActiveLink(link.href);
-
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  aria-current={isActive ? 'page' : undefined}
-                  onClick={() => setMenuOpen(false)}
-                  className={[
-                    'rounded-md border-l-2 border-transparent px-2 py-1 text-sm font-medium transition-colors',
-                    isActive
-                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-400 dark:bg-emerald-950/40 dark:text-emerald-300'
-                      : 'text-gray-600 hover:border-gray-200 hover:bg-gray-100 hover:text-black dark:text-gray-400 dark:hover:border-gray-700 dark:hover:bg-gray-800 dark:hover:text-white',
-                  ].join(' ')}
-                >
-                  {link.label}
-                </Link>
-              );
-            })}
-            <ConnectWalletButton />
-          </nav>
-        )}
-      </header>
-    </>
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                aria-current={isActive ? 'page' : undefined}
+                onClick={() => setMenuOpen(false)}
+                className={[
+                  'rounded-md border-l-2 border-transparent px-2 py-1 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-400 dark:bg-emerald-950/40 dark:text-emerald-300'
+                    : 'text-gray-600 hover:border-gray-200 hover:bg-gray-100 hover:text-black dark:text-gray-400 dark:hover:border-gray-700 dark:hover:bg-gray-800 dark:hover:text-white',
+                ].join(' ')}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
+          <ConnectWalletButton />
+        </nav>
+      )}
+    </header>
   );
 }
