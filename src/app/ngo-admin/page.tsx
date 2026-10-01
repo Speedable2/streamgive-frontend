@@ -7,6 +7,7 @@ import { ConnectWalletPrompt } from '@/components/common/ConnectWalletPrompt';
 import { CopyAddressButton } from '@/components/common/CopyAddressButton';
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
+import { DonateQrCode } from '@/components/ngos/DonateQrCode';
 import { EmbedSnippet } from '@/components/ngoAdmin/EmbedSnippet';
 import { WithdrawButton } from '@/components/ngoAdmin/WithdrawButton';
 import { StreamDetailsModal } from '@/components/streams/StreamDetailsModal';
@@ -121,6 +122,10 @@ export default function NgoAdminPage() {
               Managing streams for {ngo.name}.
             </p>
 
+            <div className="flex flex-wrap items-start gap-8">
+              <EmbedSnippet ngoId={ngo.id} />
+              <DonateQrCode ngoId={ngo.id} ngoName={ngo.name} />
+            </div>
             <dl className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-3">
               <div>
                 <dt className="text-sm text-gray-500 dark:text-gray-400">Total withdrawn</dt>

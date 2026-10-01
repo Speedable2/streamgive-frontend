@@ -100,6 +100,26 @@ export function formatRemainingDuration(balance: string, rate: string): string {
   return `~${pluralize(Math.floor(totalSeconds / SECONDS_PER_DAY), 'day')} remaining`;
 }
 
+/**
+ * Formats a simulated transaction's estimated network fee for display
+ * before the wallet's signing prompt appears.
+ *
+ * `feeStroops` is `AssembledTransaction.built.fee` — a decimal string in
+ * stroops (the same 7-decimal-place unit as XLM itself, so it can go
+ * straight through formatAmount), set once Client.from()'s generated
+ * method has simulated the call. It's an estimate, not what gets charged:
+ * the network can end up billing a different amount depending on
+ * congestion and final resource usage.
+ *
+ * @returns "≈ 0.0000123 XLM", or null while no estimate is available yet.
+ */
+export function formatEstimatedFee(feeStroops: string | undefined): string | null {
+  if (!feeStroops) {
+    return null;
+  }
+  return `≈ ${formatAmount(feeStroops)} XLM`;
+}
+
 /** Shortens a wallet/contract address to its first and last 4 characters.
  * Returns the original string unchanged if it is too short to truncate
  * without the two halves overlapping (i.e. fewer than 9 characters). */

@@ -59,6 +59,7 @@ export function StreamControls({
   onOptimisticUpdate?: (patch: Partial<Stream>) => void;
 }) {
   const { address, signTransaction } = useWallet();
+  const { client, ready } = useDonationVaultClient();
   const { showToast } = useToast();
   const [mode, setMode] = useState<Mode>('idle');
   const [pending, setPending] = useState<PendingAction>(null);
