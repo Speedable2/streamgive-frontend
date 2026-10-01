@@ -64,7 +64,7 @@ describe('ConnectWalletButton connecting state', () => {
   // does. This covers the button's rendering contract for whenever the
   // provider does report connecting: true, which is what actually happens
   // during that explicit connect() call today.
-  it('shows a loading state instead of "Connect Wallet" while the wallet is connecting', () => {
+  it('shows a non-interactive loading state instead of "Connect Wallet" while the wallet is connecting', () => {
     mockUseWallet.mockReturnValue({
       address: null,
       connecting: true,
@@ -77,8 +77,10 @@ describe('ConnectWalletButton connecting state', () => {
 
     render(<ConnectWalletButton />);
 
-    const button = screen.getByRole('button', { name: 'Connecting…' });
-    expect(button).toBeDisabled();
+    // The connecting state renders as plain text (not a button), so there
+    // is nothing clickable that could start a second connect() call.
+    expect(screen.getByText('Connecting…')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Connect Wallet' })).not.toBeInTheDocument();
   });
 });
