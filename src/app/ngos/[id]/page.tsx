@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
 import { CopyLinkButton } from '@/components/common/CopyLinkButton';
+import { DonateQrCode } from '@/components/ngos/DonateQrCode';
 import { getNgo, getStreams, type NgoProfile, type Stream } from '@/lib/api';
 import { formatAmount, truncateAddress } from '@/lib/format';
 import { explorerUrl } from '@/lib/stellar';
@@ -43,7 +44,7 @@ export default async function NgoProfilePage({ params }: Props) {
     return (
       <>
         <Header />
-        <main className="px-6 py-16 sm:px-12">
+        <main id="main" className="px-6 py-16 sm:px-12">
           <p className="text-red-600 dark:text-red-400">
             Couldn&apos;t reach the StreamGive API. Is the backend running?
           </p>
@@ -67,7 +68,7 @@ export default async function NgoProfilePage({ params }: Props) {
   return (
     <>
       <Header />
-      <main className="px-6 py-16 sm:px-12">
+      <main id="main" className="px-6 py-16 sm:px-12">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold">{ngo.name}</h1>
           {ngo.verified && (
@@ -90,11 +91,11 @@ export default async function NgoProfilePage({ params }: Props) {
         <dl className="mt-8 grid grid-cols-2 gap-6 sm:grid-cols-4">
           <div>
             <dt className="text-sm text-gray-500 dark:text-gray-400">Total committed</dt>
-            <dd className="text-lg font-semibold">{ngo.stats.totalCommitted}</dd>
+            <dd className="text-lg font-semibold">{formatAmount(ngo.stats.totalCommitted)}</dd>
           </div>
           <div>
             <dt className="text-sm text-gray-500 dark:text-gray-400">Total withdrawn</dt>
-            <dd className="text-lg font-semibold">{ngo.stats.totalWithdrawn}</dd>
+            <dd className="text-lg font-semibold">{formatAmount(ngo.stats.totalWithdrawn)}</dd>
           </div>
           <div>
             <dt className="text-sm text-gray-500 dark:text-gray-400">Active streams</dt>
@@ -106,12 +107,16 @@ export default async function NgoProfilePage({ params }: Props) {
           </div>
         </dl>
 
-        <Link
-          href={`/ngos/${ngo.id}/donate`}
-          className="mt-10 inline-block rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
-        >
-          Start streaming
-        </Link>
+        <div className="mt-10 flex flex-wrap items-start gap-8">
+          <Link
+            href={`/ngos/${ngo.id}/donate`}
+            className="inline-block rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+          >
+            Start streaming
+          </Link>
+
+          <DonateQrCode ngoId={ngo.id} ngoName={ngo.name} />
+        </div>
 
         <h2 className="mt-12 text-lg font-semibold">Recent streams</h2>
         {recentStreams.length === 0 ? (

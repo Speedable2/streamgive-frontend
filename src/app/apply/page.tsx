@@ -1,15 +1,21 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState, useRef, type FormEvent } from 'react';
 
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
 import { useWallet } from '@/components/wallet/WalletProvider';
 import { ApiError, submitNgoApplication } from '@/lib/api';
 import { NGO_REGISTRY_ERRORS } from '@/lib/contractTypes';
-import { getNgoRegistryClient } from '@/lib/ngoRegistryClient';
+import { formatEstimatedFee } from '@/lib/format';
+import { useNgoRegistryClient } from '@/lib/ngoRegistryClient';
 
 type Status = 'idle' | 'registering' | 'submitting' | 'success' | 'error';
+
+// Mirrors the backend's zod schema for NGO applications.
+const NAME_MAX_LENGTH = 200;
+const DESCRIPTION_MAX_LENGTH = 5000;
+const COUNTRY_MAX_LENGTH = 100;
 
 /** True when a failed contract call is ngo-registry reporting that this
   * address is already in the registry. Re-applying after a part-finished
@@ -20,7 +26,8 @@ function isAlreadyRegistered(err: unknown): boolean {
 }
 
 export default function ApplyPage() {
-  const { address, connect, signTransaction } = useWallet();
+  const { address, connect } = useWallet();
+  const { client, ready } = useNgoRegistryClient();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -29,9 +36,12 @@ export default function ApplyPage() {
   const [country, setCountry] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const isSubmittingRef = useRef(false);
+  const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
 
   const canSubmit =
     !!address &&
+    !!client &&
     name.trim().length > 0 &&
     description.trim().length > 0 &&
     contactEmail.trim().length > 0 &&
@@ -40,8 +50,9 @@ export default function ApplyPage() {
 
   async function handleSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
-    if (!canSubmit || !address) return;
+    if (!canSubmit || !address || isSubmittingRef.current) return;
 
+    isSubmittingRef.current = true;
     setErrorMessage(null);
 
     // On-chain first. approve_ngo fails with NotRegistered until the
@@ -52,8 +63,8 @@ export default function ApplyPage() {
     // one.
     setStatus('registering');
     try {
-      const client = await getNgoRegistryClient(address, signTransaction);
       const tx = await client.register({ owner: address, name: name.trim() });
+      setEstimatedFee(formatEstimatedFee(tx.built?.fee));
       await tx.signAndSend();
     } catch (err) {
       if (!isAlreadyRegistered(err)) {
@@ -63,9 +74,12 @@ export default function ApplyPage() {
             : 'Could not register on-chain.',
         );
         setStatus('error');
+        isSubmittingRef.current = false;
         return;
       }
       // Already in the registry from an earlier attempt — carry on.
+    } finally {
+      setEstimatedFee(null);
     }
 
     setStatus('submitting');
@@ -79,9 +93,11 @@ export default function ApplyPage() {
         country: country.trim() || undefined,
       });
       setStatus('success');
+      isSubmittingRef.current = false;
     } catch (err) {
       setErrorMessage(err instanceof ApiError ? err.message : 'Something went wrong.');
       setStatus('error');
+      isSubmittingRef.current = false;
     }
   }
 
@@ -89,7 +105,7 @@ export default function ApplyPage() {
     return (
       <>
         <Header />
-        <main className="px-6 py-16 sm:px-12">
+        <main id="main" className="px-6 py-16 sm:px-12">
           <div className="max-w-md rounded-lg border border-green-200 bg-green-50 p-6 dark:border-green-900 dark:bg-green-950">
             <p className="font-medium text-green-800 dark:text-green-300">
               Application submitted!
@@ -107,7 +123,7 @@ export default function ApplyPage() {
   return (
     <>
       <Header />
-      <main className="px-6 py-16 sm:px-12">
+      <main id="main" className="px-6 py-16 sm:px-12">
         <h1 className="text-2xl font-bold">Apply as an NGO</h1>
         <p className="mt-2 max-w-md text-sm text-gray-600 dark:text-gray-400">
           Connect the wallet your organization will use to receive donations, then tell us about
@@ -136,6 +152,7 @@ export default function ApplyPage() {
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 required
+                maxLength={NAME_MAX_LENGTH}
                 className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
               />
             </label>
@@ -147,8 +164,12 @@ export default function ApplyPage() {
                 onChange={(event) => setDescription(event.target.value)}
                 required
                 rows={4}
+                maxLength={DESCRIPTION_MAX_LENGTH}
                 className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
               />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {description.length} / {DESCRIPTION_MAX_LENGTH}
+              </p>
             </label>
 
             <label className="block">
@@ -179,6 +200,7 @@ export default function ApplyPage() {
                 type="text"
                 value={country}
                 onChange={(event) => setCountry(event.target.value)}
+                maxLength={COUNTRY_MAX_LENGTH}
                 className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
               />
             </label>
@@ -187,6 +209,12 @@ export default function ApplyPage() {
               Applying as <span className="font-mono">{address}</span>
             </p>
 
+            {status === 'registering' && estimatedFee && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Estimated network fee: {estimatedFee}
+              </p>
+            )}
+
             {status === 'error' && errorMessage && (
               <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
             )}
@@ -194,13 +222,20 @@ export default function ApplyPage() {
             <button
               type="submit"
               disabled={!canSubmit}
-              className="w-full rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+              className="w-full flex justify-center items-center gap-2 rounded-md bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-gray-200"
             >
+              {(status === 'registering' || status === 'submitting') && (
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" />
+                </svg>
+              )}
               {status === 'registering'
                 ? 'Confirm in your wallet…'
                 : status === 'submitting'
                   ? 'Submitting…'
-                  : 'Submit application'}
+                  : !ready
+                    ? 'Preparing contract…'
+                    : 'Submit application'}
             </button>
           </form>
         )}

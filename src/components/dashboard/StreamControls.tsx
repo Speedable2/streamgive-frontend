@@ -4,9 +4,9 @@ import { useState } from 'react';
 
 import { useToast } from '@/components/toast/ToastProvider';
 import { useWallet } from '@/components/wallet/WalletProvider';
-import type { Stream } from '@/lib/api';
-import { getDonationVaultClient } from '@/lib/donationVaultClient';
-import { parseAmount, TOKEN_DECIMALS } from '@/lib/format';
+import { getStreams, type Stream } from '@/lib/api';
+import { useDonationVaultClient } from '@/lib/donationVaultClient';
+import { formatEstimatedFee, parseAmount, TOKEN_DECIMALS } from '@/lib/format';
 
 /**
  * Computes the per-second token rate for a stream modification.
@@ -41,75 +41,121 @@ type Mode = 'idle' | 'toppingUp' | 'modifying' | 'confirmingCancel';
 // actually happening instead of reading "Cancelling…" for everything.
 type PendingAction = 'topUp' | 'modifyRate' | 'cancel' | null;
 
-export function StreamControls({ stream, onChanged }: { stream: Stream; onChanged: () => void }) {
+export function StreamControls({
+  stream,
+  onChanged,
+  onOptimisticUpdate,
+}: {
+  stream: Stream;
+  onChanged: () => void;
+  /**
+   * Applies an immediate local patch to this stream, ahead of onChanged()'s
+   * re-fetch — the indexer that backs that re-fetch polls on an interval,
+   * so without this the UI would sit on stale numbers for a few seconds
+   * after a confirmed on-chain action. Whatever the re-fetch eventually
+   * returns still wins once it lands, rolling this guess back if it turns
+   * out to have been wrong.
+   */
+  onOptimisticUpdate?: (patch: Partial<Stream>) => void;
+}) {
   const { address, signTransaction } = useWallet();
+  const { client, ready } = useDonationVaultClient();
   const { showToast } = useToast();
   const [mode, setMode] = useState<Mode>('idle');
   const [pending, setPending] = useState<PendingAction>(null);
   const [durationSeconds, setDurationSeconds] = useState(DURATIONS[1].seconds);
   const [topUpAmount, setTopUpAmount] = useState('');
+  const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
 
   const topUpAmountRaw = parseAmount(topUpAmount);
 
   async function handleTopUp(): Promise<void> {
-    if (!address || topUpAmountRaw === null) return;
+    if (!address || !client || topUpAmountRaw === null) return;
 
     setMode('idle');
     setPending('topUp');
     try {
-      const client = await getDonationVaultClient(address, signTransaction);
       const tx = await client.top_up({
         stream_id: BigInt(stream.onChainId),
         amount: topUpAmountRaw,
       });
+      setEstimatedFee(formatEstimatedFee(tx.built?.fee));
       await tx.signAndSend();
       showToast('success', `Stream topped up — ${INDEXING_LAG_NOTE}.`);
       setTopUpAmount('');
+      onOptimisticUpdate?.({ balance: (BigInt(stream.balance) + topUpAmountRaw).toString() });
       onChanged();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
       setPending(null);
+      setEstimatedFee(null);
     }
   }
 
   async function handleCancel(): Promise<void> {
-    if (!address) return;
+    if (!address || !client) return;
     setMode('idle');
     setPending('cancel');
     try {
-      const client = await getDonationVaultClient(address, signTransaction);
       const tx = await client.cancel_stream({ stream_id: BigInt(stream.onChainId) });
+      setEstimatedFee(formatEstimatedFee(tx.built?.fee));
       await tx.signAndSend();
       showToast('success', `Stream cancelled — ${INDEXING_LAG_NOTE}.`);
+      onOptimisticUpdate?.({ status: 'CANCELLED' });
       onChanged();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
       setPending(null);
+      setEstimatedFee(null);
     }
   }
 
   async function handleModifyRate(): Promise<void> {
-    if (!address) return;
+    if (!address || !client) return;
 
-    // Re-rate the stream's *remaining* balance over a newly chosen
-    // duration — asking a donor for a raw per-second rate makes no more
-    // sense here than it did on the create-stream form.
-    const newRate = computeModifyRate(stream.balance, durationSeconds);
-    if (newRate === null) {
-      showToast('error', 'Remaining balance is too small to stream over this duration.');
-      return;
-    }
-
-    setMode('idle');
     setPending('modifyRate');
     try {
-      const client = await getDonationVaultClient(address, signTransaction);
+      // Re-fetch the stream's balance immediately before computing the new
+      // rate, rather than trusting `stream.balance` (issue #159): that prop
+      // is only as fresh as this component's last render, and the balance
+      // moves on its own as the stream drains between then and now, or
+      // could have changed from a top-up/withdrawal elsewhere. Rating
+      // against a stale number targets a balance that no longer exists,
+      // making the stream run out earlier or later than the donor intended.
+      // This still polls the same indexer-backed list endpoint onChanged()
+      // itself uses (see INDEXING_LAG_NOTE below), so it is the freshest
+      // balance available here, not a guarantee of exact on-chain accuracy.
+      const freshStreams = await getStreams({ donor: address });
+      const freshStream = freshStreams.find((s) => s.id === stream.id);
+      if (!freshStream) {
+        showToast(
+          'error',
+          "Couldn't find this stream's current balance — it may have been cancelled.",
+        );
+        return;
+      }
+
+      // Re-rate the stream's *remaining* balance over a newly chosen
+      // duration — asking a donor for a raw per-second rate makes no more
+      // sense here than it did on the create-stream form.
+      const newRate = computeModifyRate(freshStream.balance, durationSeconds);
+      if (newRate === null) {
+        showToast('error', 'Remaining balance is too small to stream over this duration.');
+        return;
+      }
+
+      // Only now is submission actually going ahead -- stay in "modifying"
+      // mode (duration picker visible) until this point so a validation
+      // failure above leaves the donor able to immediately try a shorter
+      // duration, instead of being kicked back to the idle button row.
+      setMode('idle');
       const tx = await client.modify_rate({
         stream_id: BigInt(stream.onChainId),
         new_rate: newRate,
       });
+      setEstimatedFee(formatEstimatedFee(tx.built?.fee));
       await tx.signAndSend();
       showToast('success', `Rate updated — ${INDEXING_LAG_NOTE}.`);
       onChanged();
@@ -117,6 +163,7 @@ export function StreamControls({ stream, onChanged }: { stream: Stream; onChange
       showToast('error', err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
       setPending(null);
+      setEstimatedFee(null);
     }
   }
 
@@ -220,11 +267,19 @@ export function StreamControls({ stream, onChanged }: { stream: Stream; onChange
   }
 
   return (
-    <div className="flex flex-wrap justify-end gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {!ready && (
+        <span role="status" className="text-xs text-gray-400 dark:text-gray-500">
+          Preparing contract…
+        </span>
+      )}
+      {pending !== null && estimatedFee && (
+        <span className="text-xs text-gray-500 dark:text-gray-400">Fee {estimatedFee}</span>
+      )}
       <button
         type="button"
         onClick={() => setMode('toppingUp')}
-        disabled={pending !== null}
+        disabled={pending !== null || !ready}
         className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
       >
         {pending === 'topUp' ? 'Topping up…' : 'Top up'}
@@ -232,7 +287,7 @@ export function StreamControls({ stream, onChanged }: { stream: Stream; onChange
       <button
         type="button"
         onClick={() => setMode('modifying')}
-        disabled={pending !== null}
+        disabled={pending !== null || !ready}
         className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
       >
         {pending === 'modifyRate' ? 'Updating…' : 'Modify rate'}
@@ -240,7 +295,7 @@ export function StreamControls({ stream, onChanged }: { stream: Stream; onChange
       <button
         type="button"
         onClick={() => setMode('confirmingCancel')}
-        disabled={pending !== null}
+        disabled={pending !== null || !ready}
         className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
       >
         {pending === 'cancel' ? 'Cancelling…' : 'Cancel'}

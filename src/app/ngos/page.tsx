@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
@@ -27,7 +28,7 @@ export default async function NgosPage() {
   return (
     <>
       <Header />
-      <main className="px-6 py-16 sm:px-12">
+      <main id="main" className="px-6 py-16 sm:px-12">
         <h1 className="text-2xl font-bold">Explore NGOs</h1>
 
         {loadError && (
@@ -36,7 +37,14 @@ export default async function NgosPage() {
           </p>
         )}
 
-        {!loadError && <NgoExplorer ngos={ngos} />}
+        {!loadError && (
+          // NgoExplorer reads useSearchParams() to restore/sync filters in
+          // the URL, which requires a Suspense boundary — otherwise it
+          // forces the whole route into client-side rendering.
+          <Suspense fallback={null}>
+            <NgoExplorer ngos={ngos} />
+          </Suspense>
+        )}
       </main>
       <Footer />
     </>

@@ -18,12 +18,39 @@ The app expects a running `streamgive-backend` instance at
 the Soroban RPC URL are pre-filled with testnet values so you can start
 without deploying contracts yourself.
 
-## Running the tests
+## Testing
 
 ```bash
 npm test           # unit + component tests (vitest, single run)
-npm run test:e2e   # end-to-end tests (Playwright — needs a running dev server)
+npm run test:e2e   # end-to-end tests (Playwright)
 ```
+
+`npm test` runs Vitest once (no watch mode) against every `*.test.ts`/
+`*.test.tsx` file in `src/`. Config lives in `vitest.config.ts`, which sets
+the `jsdom` environment, the `@` path alias (mirroring `tsconfig.json`), and
+`test/setup.ts` as a global setup file — that file wires up `jest-dom`'s
+matchers and runs Testing Library's `cleanup()` after every test so DOM
+state doesn't leak between tests in the same file (this project doesn't use
+Vitest's `globals: true`, so that cleanup isn't automatic).
+
+`npm run test:e2e` runs the Playwright specs in `e2e/`. It starts
+`npm run dev` for you and points at `http://localhost:3001` unless you set
+`E2E_BASE_URL` to an already-running instance (see `playwright.config.ts`).
+
+### Writing a new test
+
+- **Unit/component tests** are colocated with the code they cover, e.g.
+  `src/lib/format.ts` → `src/lib/format.test.ts`, and
+  `src/components/dashboard/StreamControls.tsx` →
+  `src/components/dashboard/StreamControls.test.tsx`. Use
+  `@testing-library/react` for components (render, query by role/label,
+  fire events) and plain Vitest (`describe`/`it`/`expect`) for pure
+  functions. Follow an existing test in the same directory for the
+  surrounding conventions (mocking, fixtures, etc).
+- **E2E tests** go in `e2e/*.spec.ts` and use Playwright's `test`/`expect`.
+  Reserve these for flows that cross multiple pages or need a real browser
+  (wallet connection, full donor/NGO flows) — prefer a unit/component test
+  when one will do, since the e2e suite is slower and needs a live server.
 
 ## Linting and formatting
 
